@@ -4,12 +4,14 @@ import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
 import { PostRow } from "../components/PostCard.jsx";
 import Lightbox from "../components/Lightbox.jsx";
+import { SoftSkeleton } from "../components/Skeleton.jsx";
 
 function SoftList() {
   const [tab, setTab] = useState("全部");
   const [list, setList] = useState([]);
+  const [ready, setReady] = useState(false);
   useEffect(() => {
-    api("/api/softwares").then((d) => setList(d.softwares || [])).catch(() => {});
+    api("/api/softwares").then((d) => setList(d.softwares || [])).catch(() => setList([])).finally(() => setReady(true));
   }, []);
   const cats = ["全部", ...Array.from(new Set(list.map((s) => s.category).filter(Boolean)))];
   const shown = tab === "全部" ? list : list.filter((s) => s.category === tab);
@@ -19,16 +21,19 @@ function SoftList() {
         <div className="soft-hero">
           <h2>三楼软件库</h2>
           <p>工具、美化、播放器，帖子里可直接引用。</p>
-          <Link className="btn btn-gourd" to="/publish?type=software">投稿软件</Link>
+          <div className="soft-hero-actions">
+            <Link className="btn btn-gourd" to="/parse">去水印</Link>
+            <Link className="btn btn-line" to="/publish?type=software">投稿软件</Link>
+          </div>
         </div>
         <div className="chips">
           {cats.map((c) => (
             <button key={c} type="button" className={`chip ${tab === c ? "on" : ""}`} onClick={() => setTab(c)}>{c}</button>
           ))}
         </div>
-        {shown.map((s) => (
+        {!ready ? <SoftSkeleton /> : shown.map((s) => (
           <Link className="soft-row" key={s.id} to={`/soft/${s.id}`}>
-            <img src={s.icon} alt="" />
+            <img src={s.icon} alt="" loading="lazy" decoding="async" />
             <div className="grow">
               <b>{s.name}</b>
               <span>{s.summary}</span>
@@ -37,7 +42,7 @@ function SoftList() {
             <span className="soft-get">获取</span>
           </Link>
         ))}
-        {shown.length === 0 ? <div className="empty">软件库还空着</div> : null}
+        {ready && shown.length === 0 ? <div className="empty">软件库还空着</div> : null}
       </div>
     </div>
   );
@@ -69,7 +74,7 @@ function SoftDetail({ id }) {
     }
   }
 
-  if (!item) return <div className="empty">软件打开中...</div>;
+  if (!item) return <div className="layout single"><SoftSkeleton /></div>;
   const shots = item.images || [];
 
   return (

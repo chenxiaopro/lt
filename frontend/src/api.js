@@ -30,8 +30,63 @@ export async function api(path, opts = {}) {
     body: isForm ? opts.body : opts.body ? JSON.stringify(opts.body) : undefined
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || "请求失败");
+  if (!res.ok) {
+    const fallback = res.status === 404
+      ? "接口不存在，请覆盖更新后执行 bash 一键安装.sh 重启后端"
+      : "请求失败";
+    throw new Error(data.error || fallback);
+  }
   return data;
+}
+
+export function uploadVideo(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "/api/upload/video");
+    const token = localStorage.getItem("qh_token");
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (onProgress && e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onerror = () => reject(new Error("视频上传失败，请检查网络"));
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText || "{}"); } catch { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300 && data.urls && data.urls[0]) {
+        resolve(data.urls[0]);
+      } else {
+        reject(new Error(data.error || "视频上传失败"));
+      }
+    };
+    const form = new FormData();
+    form.append("files", file);
+    xhr.send(form);
+  });
+}
+
+export async function compressImage(file, maxSide = 1920, quality = 0.84) {
+  if (!file || !/^image\/(jpeg|webp)$/.test(file.type) || file.size < 600 * 1024) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    if (scale >= 1 && file.size < 2 * 1024 * 1024) {
+      bitmap.close && bitmap.close();
+      return file;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close && bitmap.close();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], `${file.name.replace(/\.[^.]+$/, "") || "image"}.jpg`, {
+      type: "image/jpeg",
+      lastModified: Date.now()
+    });
+  } catch {
+    return file;
+  }
 }
 
 const HISTORY_KEY = "qh_history";

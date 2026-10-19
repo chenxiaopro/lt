@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
 
 export default function Status() {
   const { user } = useAuth();
-  const nav = useNavigate();
   const [health, setHealth] = useState(null);
   const [rows, setRows] = useState([]);
   const [running, setRunning] = useState(false);
@@ -50,14 +49,13 @@ export default function Status() {
   }
 
   useEffect(() => {
-    if (!user || !user.isAdmin) {
-      nav("/me");
-      return;
-    }
+    if (!user || !user.isAdmin) return;
     run();
   }, [user]);
 
   const checks = health && health.checks ? health.checks : {};
+
+  if (!user || !user.isAdmin) return <Navigate to="/me" replace />;
 
   return (
     <div className="layout single">

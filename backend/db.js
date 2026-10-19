@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const bcrypt = require("bcryptjs");
 const Database = require("better-sqlite3");
+const forumx = require("./forumx");
 
 const dataDir = path.join(__dirname, "data");
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
@@ -48,6 +49,7 @@ CREATE TABLE IF NOT EXISTS posts (
   title TEXT NOT NULL,
   content TEXT NOT NULL,
   images TEXT DEFAULT '[]',
+  videos TEXT DEFAULT '[]',
   tags TEXT DEFAULT '[]',
   view_count INTEGER DEFAULT 0,
   like_count INTEGER DEFAULT 0,
@@ -179,6 +181,41 @@ function setSetting(key, value) {
   ).run(key, JSON.stringify(value));
 }
 
+const DEFAULT_MINI_APPS = [
+  { id: "parse", name: "去水印", path: "/parse", color: "#fb7185", mark: "水" },
+  { id: "music", name: "电台", path: "/music", color: "#34d399", mark: "台" },
+  { id: "chiyun", name: "赤云", path: "/chiyun", color: "#e11d48", mark: "云" },
+  { id: "task", name: "任务", path: "/discover", color: "#a78bfa", mark: "任" },
+  { id: "soft", name: "软件", path: "/soft", color: "#60a5fa", mark: "软" }
+];
+
+function normalizeMiniApp(a, i) {
+  if (!a) return null;
+  const name = String(a.name || "").trim().slice(0, 8);
+  let p = String(a.path || a.to || "").trim().slice(0, 120);
+  if (!name || !p) return null;
+  if (!p.startsWith("/") && !/^https?:\/\//i.test(p)) p = "/" + p;
+  return {
+    id: String(a.id || `app-${i}-${name}`).slice(0, 32),
+    name,
+    path: p,
+    color: String(a.color || "#ff2442").slice(0, 16),
+    mark: String(a.mark || name.slice(0, 1)).slice(0, 2)
+  };
+}
+
+function listMiniApps() {
+  const list = getSetting("mini_apps", null);
+  if (Array.isArray(list) && list.length) return list.map(normalizeMiniApp).filter(Boolean).slice(0, 12);
+  return DEFAULT_MINI_APPS.map((a) => ({ ...a }));
+}
+
+function saveMiniApps(apps) {
+  const list = (Array.isArray(apps) ? apps : []).map(normalizeMiniApp).filter(Boolean).slice(0, 12);
+  setSetting("mini_apps", list.length ? list : DEFAULT_MINI_APPS);
+  return listMiniApps();
+}
+
 function ensureSettings() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -252,6 +289,9 @@ function wipeCommunity() {
     "softwares",
     "tracks",
     "admin_logs",
+    "post_tips",
+    "post_purchases",
+    "parse_logs",
     "users",
     "boards"
   ];
@@ -265,13 +305,33 @@ function wipeCommunity() {
   }
   try {
     db.exec(
-      "DELETE FROM sqlite_sequence WHERE name IN ('users','posts','comments','likes','collects','follows','notifications','checkins','user_items','dms','softwares','tracks','boards')"
+      "DELETE FROM sqlite_sequence WHERE name IN ('users','posts','comments','likes','collects','follows','notifications','checkins','user_items','dms','softwares','tracks','boards','parse_logs','post_tips')"
     );
   } catch {
     /* sqlite_sequence is optional */
   }
   db.pragma("foreign_keys = ON");
 }
+
+const DEFAULT_BOARDS = [
+  ["综合讨论", "general", "综", "大家来这儿聊天、灌水、吹水。", "#C45C26", 1],
+  ["我的世界", "mc", "方", "生存、建筑、红石、地图，全在这栋楼。", "#3D8B5F", 2],
+  ["原神", "genshin", "原", "探索路线、深渊满星、角色培养。", "#4C8DDA", 3],
+  ["王者荣耀", "kog", "王", "对线、打野、阵容，峡谷树洞。", "#D4A017", 4],
+  ["和平精英", "pubg", "和", "刷新点、刚枪位、海岛日记。", "#6B8F71", 5],
+  ["星露谷物语", "stardew", "星", "种植表、社交线、温室冲刺。", "#E08A3A", 6],
+  ["手游攻略", "mobile", "攻", "新游评测、肝度预警、值不值得入。", "#FF6A00", 7],
+  ["玩机教程", "android", "机", "省电、清理、外接、平板当副屏。", "#2F6F5E", 8],
+  ["手机美化", "theme", "美", "图标包、壁纸、桌面布局分享。", "#E06C75", 9],
+  ["互助问答", "qa", "问", "卡关了就来问，大神在三楼。", "#7A5C45", 10],
+  ["资源分享", "share", "源", "壁纸、地图、材质，互助分享。", "#B85C38", 11],
+  ["新手村", "newbie", "新", "新人报到、发帖规范、少走弯路。", "#5B8C5A", 12],
+  ["影视闲聊", "media", "影", "剧、动画、电影，玩累了来坐坐。", "#8E6BB0", 13],
+  ["今日热议", "hot", "热", "当天最吵的那个话题。", "#E24B4A", 14]
+];
+
+const DEFAULT_BOARD_RULES =
+  "发帖先看置顶，文明交流，轻松灌水。\n\n一、以下内容将被处理\n1. 违法违规、人身攻击、骚扰\n2. 广告引流、欺诈外链\n3. 恶意刷屏、引战\n\n二、灌水可以，别把水搅浑。投诉建议请走意见反馈版。";
 
 function installFresh(input) {
   const siteName = String((input && input.siteName) || "").trim().slice(0, 20);
@@ -285,7 +345,7 @@ function installFresh(input) {
   if (!nickname) throw new Error("请填写站长昵称");
   wipeCommunity();
   ensureSettings();
-  db.prepare(
+  const created = db.prepare(
     `INSERT INTO users (username, password_hash, nickname, avatar, bio, gender, city, exp, gourd, title, created_at, ip_region, role, birthday)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
   ).run(
@@ -304,6 +364,11 @@ function installFresh(input) {
     "admin",
     ""
   );
+  assignUin(created.lastInsertRowid);
+  const insertBoard = db.prepare(
+    "INSERT INTO boards (name, slug, icon, cover, desc, color, sort_order, rules) VALUES (?,?,?,?,?,?,?,?)"
+  );
+  DEFAULT_BOARDS.forEach((b) => insertBoard.run(b[0], b[1], b[2], "", b[3], b[4], b[5], DEFAULT_BOARD_RULES));
   setSetting("installed", true);
   setSetting("seed_demo", false);
   setSetting("site_name", siteName);
@@ -424,10 +489,16 @@ const BOARD_HONORS = {
 const MEDALS = [
   { slug: "staff", name: "站务印", icon: "务", color: "#111827", desc: "三楼站务成员" },
   { slug: "mod", name: "版主印", icon: "版", color: "#2563eb", desc: "担任至少一个版块版主" },
-  { slug: "lv15", name: "三楼侠", icon: "15", color: "#ff2442", desc: "达到 15 级" },
-  { slug: "lv10", name: "十级侠", icon: "10", color: "#f59e0b", desc: "达到 10 级" },
-  { slug: "check30", name: "月签王", icon: "月", color: "#0ea5e9", desc: "连续签到 30 天" },
+  { slug: "lv1", name: "初来乍到", icon: "1", color: "#94a3b8", desc: "达到 1 级，永久" },
+  { slug: "lv5", name: "熟门熟路", icon: "5", color: "#22c55e", desc: "达到 5 级，永久" },
+  { slug: "lv8", name: "楼中常客", icon: "8", color: "#0ea5e9", desc: "达到 8 级，永久" },
+  { slug: "lv10", name: "十级侠", icon: "10", color: "#f59e0b", desc: "达到 10 级，永久" },
+  { slug: "lv15", name: "三楼侠", icon: "15", color: "#ff2442", desc: "达到 15 级，永久" },
+  { slug: "check1", name: "初签", icon: "1", color: "#86efac", desc: "完成一次签到" },
+  { slug: "check3", name: "三日签", icon: "3", color: "#4ade80", desc: "连续签到 3 天" },
   { slug: "check7", name: "七日签", icon: "7", color: "#22c55e", desc: "连续签到 7 天" },
+  { slug: "check15", name: "半月签", icon: "15", color: "#14b8a6", desc: "连续签到 15 天" },
+  { slug: "check30", name: "月签王", icon: "月", color: "#0ea5e9", desc: "连续签到 30 天" },
   { slug: "essence", name: "精华作者", icon: "精", color: "#f97316", desc: "有加精帖" },
   { slug: "like50", name: "人气王", icon: "赞", color: "#ef4444", desc: "帖子累计获赞 50" },
   { slug: "post5", name: "笔耕", icon: "帖", color: "#8b5cf6", desc: "发帖满 5" },
@@ -440,20 +511,37 @@ function medalView(m) {
   return { slug: m.slug, name: m.name, icon: m.icon, color: m.color, desc: m.desc };
 }
 
+function dayStamp(offset = 0) {
+  return new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10);
+}
+
+function liveCheckinStreak(row) {
+  const last = String((row && row.last_checkin) || "").slice(0, 10);
+  if (last === dayStamp(0) || last === dayStamp(-1)) return Number(row.checkin_streak || 0);
+  return 0;
+}
+
 function honorsOf(userId) {
   try {
     return db
       .prepare(
-        `SELECT h.board_id, h.title AS honor, h.color AS honor_color, b.name AS board_name
+        `SELECT h.board_id, h.title AS honor, h.color AS honor_color, b.name AS board_name,
+                IFNULL(h.expires_at,'') AS expires_at, IFNULL(h.shown,0) AS shown
          FROM user_honors h JOIN boards b ON b.id = h.board_id WHERE h.user_id=?`
       )
       .all(userId)
-      .filter((r) => r.honor)
+      .filter((r) => {
+        if (!r.honor) return false;
+        if (r.expires_at && new Date(r.expires_at).getTime() <= Date.now()) return false;
+        return true;
+      })
       .map((r) => ({
         boardId: r.board_id,
         title: r.honor,
         color: r.honor_color || "#38bdf8",
-        boardName: r.board_name || ""
+        boardName: r.board_name || "",
+        expiresAt: r.expires_at || "",
+        shown: !!r.shown
       }));
   } catch {
     return [];
@@ -528,10 +616,17 @@ function earnedSlugs(row, extra) {
   };
   if ((row.role || "user") === "admin") take("staff");
   if (extra.mod) take("mod");
-  if (rank.level >= 15) take("lv15");
+  if (rank.level >= 1) take("lv1");
+  if (rank.level >= 5) take("lv5");
+  if (rank.level >= 8) take("lv8");
   if (rank.level >= 10) take("lv10");
-  if ((row.checkin_streak || 0) >= 30) take("check30");
-  if ((row.checkin_streak || 0) >= 7) take("check7");
+  if (rank.level >= 15) take("lv15");
+  const streak = liveCheckinStreak(row);
+  if (streak >= 1) take("check1");
+  if (streak >= 3) take("check3");
+  if (streak >= 7) take("check7");
+  if (streak >= 15) take("check15");
+  if (streak >= 30) take("check30");
   if (extra.essence) take("essence");
   if (extra.likes >= 50) take("like50");
   if (extra.posts >= 5) take("post5");
@@ -551,6 +646,11 @@ function syncUserMedals(row, extra) {
     "INSERT OR IGNORE INTO user_medals (user_id, slug, equipped, granted_at) VALUES (?,?,0,?)"
   );
   earned.forEach((slug) => ins.run(row.id, slug, now()));
+  ["check1", "check3", "check7", "check15", "check30"].forEach((slug) => {
+    if (!earned.includes(slug)) {
+      db.prepare("DELETE FROM user_medals WHERE user_id=? AND slug=?").run(row.id, slug);
+    }
+  });
   const ownedRows = db.prepare("SELECT slug, equipped FROM user_medals WHERE user_id=?").all(row.id);
   const ownedSet = new Set(ownedRows.map((r) => r.slug));
   let worn = ownedRows.filter((r) => r.equipped && enabled.has(r.slug)).map((r) => r.slug);
@@ -604,18 +704,46 @@ function grantMedal(userId, slug) {
     .run(userId, slug, now());
 }
 
-function upsertHonor(userId, boardId, title, color) {
+function upsertHonor(userId, boardId, title, color, days) {
   const name = String(title || "").trim().slice(0, 8);
   if (!name) {
     db.prepare("DELETE FROM user_honors WHERE user_id=? AND board_id=?").run(userId, boardId);
+    const rest = db.prepare("SELECT board_id FROM user_honors WHERE user_id=? AND shown=1").get(userId);
+    if (!rest) {
+      const first = db.prepare("SELECT board_id FROM user_honors WHERE user_id=? LIMIT 1").get(userId);
+      if (first) db.prepare("UPDATE user_honors SET shown=1 WHERE user_id=? AND board_id=?").run(userId, first.board_id);
+    }
     return null;
   }
   const tint = String(color || "").trim() || "#38bdf8";
+  const nDays = Number(days) || 0;
+  const expires = nDays > 0 ? new Date(Date.now() + nDays * 86400000).toISOString() : "";
+  const hadShown = db.prepare("SELECT 1 FROM user_honors WHERE user_id=? AND shown=1").get(userId);
   db.prepare(
-    `INSERT INTO user_honors (user_id, board_id, title, color) VALUES (?,?,?,?)
-     ON CONFLICT(user_id, board_id) DO UPDATE SET title=excluded.title, color=excluded.color`
-  ).run(userId, boardId, name, tint);
-  return { boardId, title: name, color: tint };
+    `INSERT INTO user_honors (user_id, board_id, title, color, expires_at, shown) VALUES (?,?,?,?,?,?)
+     ON CONFLICT(user_id, board_id) DO UPDATE SET title=excluded.title, color=excluded.color, expires_at=excluded.expires_at`
+  ).run(userId, boardId, name, tint, expires, hadShown ? 0 : 1);
+  if (!hadShown) {
+    db.prepare("UPDATE user_honors SET shown=1 WHERE user_id=? AND board_id=?").run(userId, boardId);
+  }
+  return { boardId, title: name, color: tint, expiresAt: expires };
+}
+
+function setShownHonor(userId, boardId) {
+  const row = db.prepare("SELECT * FROM user_honors WHERE user_id=? AND board_id=?").get(userId, boardId);
+  if (!row) {
+    const err = new Error("还没有这个称号");
+    err.status = 404;
+    throw err;
+  }
+  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) {
+    const err = new Error("称号已过期");
+    err.status = 400;
+    throw err;
+  }
+  db.prepare("UPDATE user_honors SET shown=0 WHERE user_id=?").run(userId);
+  db.prepare("UPDATE user_honors SET shown=1 WHERE user_id=? AND board_id=?").run(userId, boardId);
+  return honorsOf(userId);
 }
 
 function honorPreset(slug, fallback) {
@@ -626,7 +754,17 @@ function isAdmin(user) {
   return !!(user && (user.role || "user") === "admin");
 }
 
+const UIN_MIN = 10001;
+const UIN_MAX = 99999999999;
+const SUPER_UIN = 10001;
+
+function validUin(n) {
+  return Number.isInteger(n) && n >= UIN_MIN && n <= UIN_MAX;
+}
+
 function isSuper(user) {
+  if (!user) return false;
+  if (Number(user.uin) === SUPER_UIN) return true;
   if (!isAdmin(user)) return false;
   const owner = getSetting("site_owner", "");
   if (owner) return user.username === owner;
@@ -645,6 +783,11 @@ function canModerate(user, boardId) {
   }
 }
 
+function isModerator(user) {
+  if (!user) return false;
+  return staffBoards(user.id).length > 0;
+}
+
 function publicUser(row, meId) {
   if (!row) return null;
   const rank = rankOf(row.exp);
@@ -655,9 +798,19 @@ function publicUser(row, meId) {
   const fans = db.prepare("SELECT COUNT(*) AS c FROM follows WHERE target_type='user' AND target_id=?").get(row.id).c;
   const following = db.prepare("SELECT COUNT(*) AS c FROM follows WHERE user_id=? AND target_type='user'").get(row.id).c;
   const posts = db.prepare("SELECT COUNT(*) AS c FROM posts WHERE user_id=?").get(row.id).c;
+  const threadCount = db.prepare(
+    `SELECT COUNT(*) AS c FROM posts p LEFT JOIN boards b ON b.id=p.board_id
+     WHERE p.user_id=? AND IFNULL(b.slug,'')<>'pool'`
+  ).get(row.id).c;
   const comments = db.prepare("SELECT COUNT(*) AS c FROM comments WHERE user_id=?").get(row.id).c;
   const likes = db.prepare("SELECT COALESCE(SUM(like_count),0) AS c FROM posts WHERE user_id=?").get(row.id).c;
   const essence = db.prepare("SELECT COUNT(*) AS c FROM posts WHERE user_id=? AND COALESCE(is_essence,0)=1").get(row.id).c;
+  const gameCommentCount = db.prepare(
+    `SELECT COUNT(*) AS c FROM comments c
+     JOIN posts p ON p.id = c.post_id
+     JOIN boards b ON b.id = p.board_id
+     WHERE c.user_id=? AND b.slug IN ('mc','genshin','kog','pubg','stardew','mobile')`
+  ).get(row.id).c;
   const bag = syncUserMedals(row, { posts, comments, likes, essence, mod: modIds.length > 0 });
   return {
     id: row.id,
@@ -688,28 +841,125 @@ function publicUser(row, meId) {
     maxLevel: rank.max,
     createdAt: row.created_at,
     lastCheckin: row.last_checkin,
-    checkinStreak: row.checkin_streak,
+    checkinStreak: liveCheckinStreak(row),
     ipRegion: row.ip_region,
     followed,
     fans,
     following,
     posts,
+    threadCount,
+    replyCount: comments,
+    collectCount: db.prepare("SELECT COUNT(*) AS c FROM collects WHERE user_id=?").get(row.id).c,
+    gameCommentCount,
+    cover: row.cover || "",
+    hometown: row.hometown || "",
+    school: row.school || "",
+    photoCount: db.prepare("SELECT COUNT(*) AS c FROM user_photos WHERE user_id=?").get(row.id).c,
+    verifyKind: ["person", "org", "official"].includes(row.verify_kind) ? row.verify_kind : "",
+    verifyTitle: String(row.verify_title || "").slice(0, 24),
     dress: userDress(row.id),
     honors: honorsOf(row.id),
     medals: bag.worn,
-    medalBag: bag.owned
+    medalBag: bag.owned,
+    uin: Number(row.uin) || 0,
+    uinPretty: !!(row.uin_pretty || (row.uin && isPrettyUin(row.uin))),
+    ...vipMeta(row)
+    ,
+    email: meId === row.id ? String(row.email || "") : ""
   };
+}
+
+const liteUserCache = new Map();
+const LITE_USER_TTL = 8000;
+
+function wornMedalsOf(userId) {
+  const bySlug = Object.fromEntries(medalCatalog().map((m) => [m.slug, m]));
+  try {
+    return db
+      .prepare("SELECT slug FROM user_medals WHERE user_id=? AND equipped=1")
+      .all(userId)
+      .map((r) => bySlug[r.slug])
+      .filter(Boolean)
+      .map((m) => ({ ...medalView(m), owned: true, equipped: true }));
+  } catch {
+    return [];
+  }
+}
+
+// Feed and comment authors only need display fields. Skipping profile counters
+// and medal writes removes most of the per-post query cost.
+function publicUserLite(row) {
+  if (!row) return null;
+  const key = `${row.id}:${row.exp}:${row.gourd}:${row.nickname}:${row.avatar}:${row.vip_until}:${row.role}`;
+  const hit = liteUserCache.get(key);
+  if (hit && Date.now() - hit.at < LITE_USER_TTL) return hit.value;
+  const rank = rankOf(row.exp);
+  const modIds = staffBoards(row.id);
+  const value = {
+    id: row.id,
+    username: row.username,
+    nickname: row.nickname,
+    avatar: row.avatar,
+    bio: row.bio,
+    gender: row.gender,
+    city: row.city,
+    birthday: row.birthday || "",
+    age: ageOf(row.birthday),
+    role: row.role || "user",
+    isAdmin: (row.role || "user") === "admin",
+    isModerator: modIds.length > 0,
+    isSuper: isSuper(row),
+    modBoardIds: modIds,
+    bannedUntil: row.banned_until || "",
+    mutedUntil: row.muted_until || "",
+    exp: row.exp,
+    gourd: row.gourd,
+    level: rank.level,
+    title: rank.title,
+    titleColor: rank.color,
+    levelExp: rank.levelExp,
+    nextExp: rank.nextExp,
+    nextTitle: rank.nextTitle,
+    progress: rank.progress,
+    maxLevel: rank.max,
+    createdAt: row.created_at,
+    lastCheckin: row.last_checkin,
+    checkinStreak: liveCheckinStreak(row),
+    ipRegion: row.ip_region,
+    cover: row.cover || "",
+    hometown: row.hometown || "",
+    school: row.school || "",
+    verifyKind: ["person", "org", "official"].includes(row.verify_kind) ? row.verify_kind : "",
+    verifyTitle: String(row.verify_title || "").slice(0, 24),
+    dress: userDress(row.id),
+    honors: honorsOf(row.id),
+    medals: wornMedalsOf(row.id),
+    uin: Number(row.uin) || 0,
+    uinPretty: !!(row.uin_pretty || (row.uin && isPrettyUin(row.uin))),
+    email: "",
+    ...vipMeta(row)
+  };
+  if (liteUserCache.size > 600) liteUserCache.clear();
+  liteUserCache.set(key, { at: Date.now(), value });
+  return value;
 }
 
 function bumpExp(userId, delta, gourdDelta = 0) {
   db.prepare("UPDATE users SET exp = exp + ?, gourd = gourd + ? WHERE id=?").run(delta, gourdDelta, userId);
 }
 
-function notify(userId, fromUserId, type, postId, content) {
+function notify(userId, fromUserId, type, postId, content, commentId) {
   if (userId && fromUserId && userId === fromUserId) return;
-  db.prepare(
-    "INSERT INTO notifications (user_id, from_user_id, type, post_id, content, created_at) VALUES (?,?,?,?,?,?)"
-  ).run(userId, fromUserId || null, type, postId || null, content || "", now());
+  const cid = Number(commentId) || 0;
+  try {
+    db.prepare(
+      "INSERT INTO notifications (user_id, from_user_id, type, post_id, content, comment_id, created_at) VALUES (?,?,?,?,?,?,?)"
+    ).run(userId, fromUserId || null, type, postId || null, content || "", cid, now());
+  } catch {
+    db.prepare(
+      "INSERT INTO notifications (user_id, from_user_id, type, post_id, content, created_at) VALUES (?,?,?,?,?,?)"
+    ).run(userId, fromUserId || null, type, postId || null, content || "", now());
+  }
 }
 
 function commentsBySlug(slug) {
@@ -921,10 +1171,10 @@ function scrubTestPosts() {
   });
 }
 
-function seedIfEmpty() {
-  const count = db.prepare("SELECT COUNT(*) AS c FROM users").get().c;
-  if (count > 0) return;
-  return;
+function seedIfEmpty(opts = {}) {
+  const force = !!opts.force;
+  // 安装包按空库交付；演示数据只在明确调用 reseed-demo.js 时写入。
+  if (!force) return;
 
   const hash = bcrypt.hashSync("123456", 8);
   const created = new Date(Date.now() - 120 * 86400000).toISOString();
@@ -950,9 +1200,16 @@ function seedIfEmpty() {
   );
 
   const insertMany = db.transaction(() => {
+    const userIds = [];
+    const newUserIds = [];
     for (const u of users) {
+      const existing = db.prepare("SELECT id FROM users WHERE username=?").get(u[0]);
+      if (existing) {
+        userIds.push(existing.id);
+        continue;
+      }
       const level = levelOf(u[5]);
-      insertUser.run({
+      const info = insertUser.run({
         username: u[0],
         password_hash: hash,
         nickname: u[1],
@@ -968,29 +1225,23 @@ function seedIfEmpty() {
         checkin_streak: 3 + (u[5] % 12),
         ip_region: u[7]
       });
+      userIds.push(info.lastInsertRowid);
+      newUserIds.push(info.lastInsertRowid);
     }
 
-    const boards = [
-      ["综合讨论", "general", "综", "大家来这儿聊天、灌水、吹水。", "#C45C26", 1],
-      ["我的世界", "mc", "方", "生存、建筑、红石、地图，全在这栋楼。", "#3D8B5F", 2],
-      ["原神", "genshin", "原", "探索路线、深渊满星、角色培养。", "#4C8DDA", 3],
-      ["王者荣耀", "kog", "王", "对线、打野、阵容，峡谷树洞。", "#D4A017", 4],
-      ["和平精英", "pubg", "和", "刷新点、刚枪位、海岛日记。", "#6B8F71", 5],
-      ["星露谷物语", "stardew", "星", "种植表、社交线、温室冲刺。", "#E08A3A", 6],
-      ["手游攻略", "mobile", "攻", "新游评测、肝度预警、值不值得入。", "#FF6A00", 7],
-      ["玩机教程", "android", "机", "省电、清理、外接、平板当副屏。", "#2F6F5E", 8],
-      ["手机美化", "theme", "美", "图标包、壁纸、桌面布局分享。", "#E06C75", 9],
-      ["互助问答", "qa", "问", "卡关了就来问，大神在三楼。", "#7A5C45", 10],
-      ["资源分享", "share", "源", "壁纸、地图、材质，互助分享。", "#B85C38", 11],
-      ["新手村", "newbie", "新", "新人报到、发帖规范、少走弯路。", "#5B8C5A", 12],
-      ["影视闲聊", "media", "影", "剧、动画、电影，玩累了来坐坐。", "#8E6BB0", 13],
-      ["今日热议", "hot", "热", "当天最吵的那个话题。", "#E24B4A", 14]
-    ];
+    const boards = DEFAULT_BOARDS;
     const insertBoard = db.prepare(
       `INSERT INTO boards (name, slug, icon, cover, desc, color, sort_order) VALUES (?,?,?,?,?,?,?)`
     );
+    const boardIds = [];
     for (const b of boards) {
-      insertBoard.run(b[0], b[1], b[2], "", b[3], b[4], b[5]);
+      const existing = db.prepare("SELECT id FROM boards WHERE slug=?").get(b[1]);
+      if (existing) {
+        boardIds.push(existing.id);
+        continue;
+      }
+      const info = insertBoard.run(b[0], b[1], b[2], "", b[3], b[4], b[5]);
+      boardIds.push(info.lastInsertRowid);
     }
 
     const img = (id, w = 960, h = 540) =>
@@ -1199,10 +1450,24 @@ function seedIfEmpty() {
     const regions = ["广东", "四川", "浙江", "上海", "湖北", "江苏", "云南", "湖南"];
     const postIds = [];
     for (const p of posts) {
+      const uid = userIds[p.user - 1];
+      const boardId = boardIds[p.board - 1];
+      const exists = db.prepare("SELECT id FROM posts WHERE user_id=? AND title=?").get(uid, p.title);
+      if (exists) {
+        postIds.push({
+          id: exists.id,
+          uid,
+          userIndex: p.user - 1,
+          likes: p.likes,
+          collects: p.collects,
+          slug: boards[p.board - 1][1]
+        });
+        continue;
+      }
       const t = new Date(Date.now() - p.hours * 3600000).toISOString();
       const info = insertPost.run({
-        user_id: p.user,
-        board_id: p.board,
+        user_id: uid,
+        board_id: boardId,
         title: p.title,
         content: p.content,
         images: JSON.stringify(p.images),
@@ -1216,7 +1481,14 @@ function seedIfEmpty() {
         created_at: t,
         ip_region: regions[p.user % regions.length]
       });
-      postIds.push({ id: info.lastInsertRowid, user: p.user, likes: p.likes, collects: p.collects, board: p.board });
+      postIds.push({
+        id: info.lastInsertRowid,
+        uid,
+        userIndex: p.user - 1,
+        likes: p.likes,
+        collects: p.collects,
+        slug: boards[p.board - 1][1]
+      });
     }
 
     const insertComment = db.prepare(
@@ -1234,16 +1506,13 @@ function seedIfEmpty() {
     );
 
     for (const p of postIds) {
-      const slug = ({
-        1: "general", 2: "mc", 3: "genshin", 4: "kog", 5: "pubg",
-        6: "stardew", 7: "mobile", 8: "android", 9: "theme", 10: "qa",
-        11: "share", 12: "newbie", 13: "media", 14: "hot"
-      })[p.board] || "general";
+      const slug = p.slug || "general";
       const pool = commentsBySlug(slug);
       const n = 3 + (Number(p.id) % 5);
       let rootId = null;
       for (let i = 0; i < n; i++) {
-        const uid = 1 + ((Number(p.id) + i * 3) % 12);
+        const userIndex = (Number(p.id) + i * 3) % 12;
+        const uid = userIds[userIndex];
         const ctime = new Date(Date.now() - (p.id * 2 + i) * 1800000).toISOString();
         const info = insertComment.run(
           p.id,
@@ -1260,7 +1529,7 @@ function seedIfEmpty() {
         if (i === 1 && rootId) {
           insertComment.run(
             p.id,
-            1 + ((uid + 2) % 12),
+            userIds[(userIndex + 3) % 12],
             rootId,
             replyBySlug(slug, 0),
             4,
@@ -1271,7 +1540,7 @@ function seedIfEmpty() {
           );
           insertComment.run(
             p.id,
-            1 + ((uid + 4) % 12),
+            userIds[(userIndex + 5) % 12],
             rootId,
             replyBySlug(slug, 1),
             2,
@@ -1283,14 +1552,14 @@ function seedIfEmpty() {
           if (Number(p.id) % 3 === 0) {
             insertComment.run(
               p.id,
-              p.user,
+              p.uid,
               rootId,
               replyBySlug(slug, 2),
               6,
               i + 4,
               0,
               new Date(Date.now() - (p.id * 2 + i) * 1500000).toISOString(),
-              regions[p.user % regions.length]
+              regions[p.userIndex % regions.length]
             );
           }
         }
@@ -1299,8 +1568,8 @@ function seedIfEmpty() {
       db.prepare("UPDATE posts SET comment_count=? WHERE id=?").run(commentCount, p.id);
 
       for (let u = 1; u <= 12; u++) {
-        if ((u + Number(p.id)) % 3 === 0) insertLike.run(u, "post", p.id, now());
-        if ((u + Number(p.id)) % 4 === 0) insertCollect.run(u, p.id, now());
+        if ((u + Number(p.id)) % 3 === 0) insertLike.run(userIds[u - 1], "post", p.id, now());
+        if ((u + Number(p.id)) % 4 === 0) insertCollect.run(userIds[u - 1], p.id, now());
       }
     }
 
@@ -1310,40 +1579,52 @@ function seedIfEmpty() {
       [10, "user", 9], [8, "user", 9], [11, "user", 2], [6, "user", 5],
       [1, "user", 2], [1, "user", 4], [1, "user", 9]
     ];
-    for (const f of followPairs) insertFollow.run(f[0], f[1], f[2], now());
+    for (const f of followPairs) {
+      insertFollow.run(userIds[f[0] - 1], f[1], userIds[f[2] - 1], now());
+    }
     for (let b = 1; b <= 14; b++) {
+      const boardId = boardIds[b - 1];
       for (let u = 1; u <= 12; u++) {
-        if ((u + b) % 2 === 0) insertFollow.run(u, "board", b, now());
+        if ((u + b) % 2 === 0) insertFollow.run(userIds[u - 1], "board", boardId, now());
       }
-      const fc = db.prepare("SELECT COUNT(*) AS c FROM follows WHERE target_type='board' AND target_id=?").get(b).c;
-      const pc = db.prepare("SELECT COUNT(*) AS c FROM posts WHERE board_id=?").get(b).c;
-      db.prepare("UPDATE boards SET follow_count=?, post_count=?, today_posts=? WHERE id=?").run(fc, pc, Math.max(1, pc - 1), b);
+      const fc = db.prepare("SELECT COUNT(*) AS c FROM follows WHERE target_type='board' AND target_id=?").get(boardId).c;
+      const pc = db.prepare("SELECT COUNT(*) AS c FROM posts WHERE board_id=?").get(boardId).c;
+      db.prepare("UPDATE boards SET follow_count=?, post_count=?, today_posts=? WHERE id=?").run(fc, pc, Math.max(1, pc - 1), boardId);
     }
 
     const insertNotif = db.prepare(
       `INSERT INTO notifications (user_id, from_user_id, type, post_id, content, is_read, created_at) VALUES (?,?,?,?,?,?,?)`
     );
-    insertNotif.run(1, 10, "follow", null, "关注了你", 0, now());
-    insertNotif.run(1, 2, "like", 1, "赞了你的帖子", 0, now());
-    insertNotif.run(1, 4, "comment", 14, "回复了你的帖子", 0, now());
-    insertNotif.run(2, 10, "comment", 2, "回复了你的帖子", 1, now());
-    insertNotif.run(2, 3, "collect", 2, "收藏了你的帖子", 0, now());
+    insertNotif.run(userIds[0], userIds[9], "follow", null, "关注了你", 0, now());
+    insertNotif.run(userIds[0], userIds[1], "like", postIds[0] && postIds[0].id, "赞了你的帖子", 0, now());
+    insertNotif.run(userIds[0], userIds[3], "comment", postIds[13] && postIds[13].id, "回复了你的帖子", 0, now());
+    insertNotif.run(userIds[1], userIds[9], "comment", postIds[1] && postIds[1].id, "回复了你的帖子", 1, now());
+    insertNotif.run(userIds[1], userIds[2], "collect", postIds[1] && postIds[1].id, "收藏了你的帖子", 0, now());
 
     const insertGift = db.prepare(
       `INSERT INTO gifts (name, cost, cover, stock, desc) VALUES (?,?,?,?,?)`
     );
-    insertGift.run("青葫灯笼头像框", 80, img("gift1", 400, 400), 42, "发帖时点亮一盏小灯笼");
-    insertGift.run("金葫芦铭牌", 160, img("gift2", 400, 400), 18, "昵称旁带金色葫芦印");
-    insertGift.run("三楼侠称号卡", 320, img("gift3", 400, 400), 9, "限时佩戴「三楼侠」称号");
-    insertGift.run("宣纸桌面主题", 120, img("gift4", 400, 400), 30, "空间页换成宣纸纹理");
-    insertGift.run("签到加成符·三日", 60, img("gift5", 400, 400), 80, "连续三天签到葫芦 +50%");
+    if (db.prepare("SELECT COUNT(*) AS c FROM gifts").get().c === 0) {
+      insertGift.run("青葫灯笼头像框", 80, img("gift1", 400, 400), 42, "发帖时点亮一盏小灯笼");
+      insertGift.run("金葫芦铭牌", 160, img("gift2", 400, 400), 18, "昵称旁带金色葫芦印");
+      insertGift.run("三楼侠称号卡", 320, img("gift3", 400, 400), 9, "限时佩戴「三楼侠」称号");
+      insertGift.run("宣纸桌面主题", 120, img("gift4", 400, 400), 30, "空间页换成宣纸纹理");
+      insertGift.run("签到加成符·三日", 60, img("gift5", 400, 400), 80, "连续三天签到葫芦 +50%");
+    }
+
+    for (const id of newUserIds) {
+      try { assignUin(id); } catch { /* uin is optional until next migration */ }
+    }
   });
 
   insertMany();
 }
 
-function decoratePost(row, meId) {
-  const author = publicUser(db.prepare("SELECT * FROM users WHERE id=?").get(row.user_id), meId);
+function decoratePost(row, meId, opts = {}) {
+  const lite = !!opts.lite;
+  const author = lite
+    ? publicUserLite(db.prepare("SELECT * FROM users WHERE id=?").get(row.user_id))
+    : publicUser(db.prepare("SELECT * FROM users WHERE id=?").get(row.user_id), meId);
   const board = db.prepare("SELECT * FROM boards WHERE id=?").get(row.board_id);
   const liked = meId
     ? !!db.prepare("SELECT 1 FROM likes WHERE user_id=? AND target_type='post' AND target_id=?").get(meId, row.id)
@@ -1351,11 +1632,13 @@ function decoratePost(row, meId) {
   const collected = meId
     ? !!db.prepare("SELECT 1 FROM collects WHERE user_id=? AND post_id=?").get(meId, row.id)
     : false;
+  const meUser = meId ? db.prepare("SELECT * FROM users WHERE id=?").get(meId) : null;
   return {
     id: row.id,
     title: row.title,
     content: row.content,
     images: JSON.parse(row.images || "[]"),
+    videos: JSON.parse(row.videos || "[]"),
     tags: JSON.parse(row.tags || "[]"),
     viewCount: row.view_count,
     likeCount: row.like_count,
@@ -1366,12 +1649,29 @@ function decoratePost(row, meId) {
     official: !!row.is_official,
     locked: !!row.is_locked,
     hidden: !!row.is_hidden,
-    canModerate: canModerate(meId ? db.prepare("SELECT * FROM users WHERE id=?").get(meId) : null, row.board_id),
+    trashed: !!String(row.trashed_at || "").trim(),
+    trashedAt: row.trashed_at || "",
+    hot: !!row.is_hot,
+    certified: !!row.is_certified,
+    certifiedAt: row.certified_at || "",
+    tipCount: Number(row.tip_count || 0),
+    typeId: Number(row.type_id) || 0,
+    typeName: forumx.typeNameOf(board && board.thread_types, row.type_id),
+    highlight: forumx.highlightOf(row.highlight),
+    bumpedAt: row.bumped_at || "",
+    sunk: !!String(row.sunk_at || "").trim(),
+    sunkAt: row.sunk_at || "",
+    canModerate: canModerate(meUser, row.board_id),
+    canOfficial: isAdmin(meUser),
+    canEdit: !!(meUser && (meUser.id === row.user_id || canModerate(meUser, row.board_id))),
+    canMove: canModerate(meUser, row.board_id),
     createdAt: row.created_at,
     ipRegion: row.ip_region,
     liked,
     collected,
     author,
+    mentions: lite ? [] : mentionUsers(row.mentions),
+    tipGivers: lite ? [] : tipGiversOf(row.id, 0),
     board: board
       ? {
           id: board.id,
@@ -1387,8 +1687,8 @@ function decoratePost(row, meId) {
         }
       : null
       ,
-    software: row.soft_id ? mapSoft(db.prepare("SELECT * FROM softwares WHERE id=?").get(row.soft_id)) : null,
-    track: row.track_id ? mapTrack(db.prepare("SELECT * FROM tracks WHERE id=?").get(row.track_id)) : null
+    software: !lite && row.soft_id ? mapSoft(db.prepare("SELECT * FROM softwares WHERE id=?").get(row.soft_id)) : null,
+    track: !lite && row.track_id ? mapTrack(db.prepare("SELECT * FROM tracks WHERE id=?").get(row.track_id)) : null
   };
 }
 
@@ -1415,8 +1715,10 @@ function mapBoard(b, meId) {
     topics: b.topics || b.post_count || 0,
     moderators: names,
     rules: b.rules || "",
+    announcement: b.announcement || "",
     modUsers: modRows,
     system: !!b.system_flag,
+    threadTypes: forumx.parseTypes(b.thread_types),
     followed: meId
       ? !!db.prepare("SELECT 1 FROM follows WHERE user_id=? AND target_type='board' AND target_id=?").get(meId, b.id)
       : false
@@ -1439,7 +1741,7 @@ function parseGiftPayload(raw) {
 }
 
 function userDress(userId) {
-  const dress = { frame: null, badge: null, title: null, bubble: null };
+  const dress = { frame: null, bubble: null, card: null };
   if (!userId) return dress;
   let rows = [];
   try {
@@ -1454,8 +1756,9 @@ function userDress(userId) {
     return dress;
   }
   for (const g of rows) {
-    if (dress[g.kind] === null && ["frame", "badge", "title", "bubble"].includes(g.kind)) {
-      dress[g.kind] = { id: g.id, name: g.name, slug: g.slug, ...parseGiftPayload(g.payload) };
+    const kind = g.kind === "pendant" ? "frame" : g.kind;
+    if (dress[kind] === null && ["frame", "bubble", "card"].includes(kind)) {
+      dress[kind] = { id: g.id, name: g.name, slug: g.slug, ...parseGiftPayload(g.payload) };
     }
   }
   return dress;
@@ -1471,7 +1774,7 @@ function mapGift(g, meId) {
     cost: g.cost,
     stock: g.stock,
     desc: g.desc,
-    kind: g.kind || "frame",
+    kind: g.kind === "pendant" || g.kind === "theme" ? (g.kind === "theme" ? "card" : "frame") : (g.kind || "frame"),
     slug: g.slug || "",
     payload: parseGiftPayload(g.payload),
     owned: !!item,
@@ -1483,6 +1786,8 @@ function migrateGifts() {
   ensureCol("gifts", "kind", "ALTER TABLE gifts ADD COLUMN kind TEXT DEFAULT 'frame'");
   ensureCol("gifts", "slug", "ALTER TABLE gifts ADD COLUMN slug TEXT");
   ensureCol("gifts", "payload", "ALTER TABLE gifts ADD COLUMN payload TEXT DEFAULT '{}'");
+  ensureCol("users", "verify_kind", "ALTER TABLE users ADD COLUMN verify_kind TEXT DEFAULT ''");
+  ensureCol("users", "verify_title", "ALTER TABLE users ADD COLUMN verify_title TEXT DEFAULT ''");
   db.exec(`CREATE TABLE IF NOT EXISTS user_items (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -1492,18 +1797,35 @@ function migrateGifts() {
     UNIQUE(user_id, gift_id)
   )`);
 
+  if (getSetting("dress_pack", "") !== "qq-v3") {
+    db.exec("DELETE FROM user_items");
+    db.exec("DELETE FROM gifts");
+    setSetting("dress_pack", "qq-v3");
+  }
+
   const catalog = [
-    { slug: "lantern", kind: "frame", name: "青葫灯笼框", cost: 80, stock: 999, desc: "红绿灯笼绕一圈，发帖更显眼。", payload: { mark: "灯" } },
-    { slug: "goldring", kind: "frame", name: "金边葫芦框", cost: 160, stock: 999, desc: "金边描一圈，像刚摘的葫芦。", payload: { mark: "金" } },
-    { slug: "sakura", kind: "frame", name: "粉樱花框", cost: 100, stock: 999, desc: "浅粉花环，适合空间页。", payload: { mark: "樱" } },
-    { slug: "pixel", kind: "frame", name: "像素侠框", cost: 90, stock: 999, desc: "方块描边，玩机人本命。", payload: { mark: "侠" } },
-    { slug: "seal", kind: "frame", name: "三楼红章框", cost: 140, stock: 999, desc: "头像角上一枚小红章。", payload: { mark: "楼" } },
-    { slug: "goldtag", kind: "badge", name: "金葫芦铭牌", cost: 120, stock: 999, desc: "昵称旁带金色葫芦印。", payload: { mark: "金葫" } },
-    { slug: "floor", kind: "badge", name: "楼主印", cost: 200, stock: 999, desc: "回帖时亮一枚楼主印。", payload: { mark: "楼" } },
-    { slug: "sanlouxia", kind: "title", name: "三楼侠称号", cost: 280, stock: 999, desc: "佩戴「三楼侠」，和等级称号一起亮。", payload: { mark: "三楼侠" } },
-    { slug: "nightkeep", kind: "title", name: "夜楼守称号", cost: 180, stock: 999, desc: "夜里刷帖的人专属。", payload: { mark: "夜楼守" } },
-    { slug: "pinkbub", kind: "bubble", name: "粉泡气泡", cost: 70, stock: 999, desc: "回帖气泡换成浅粉圆角。", payload: { mark: "泡" } },
-    { slug: "paperbub", kind: "bubble", name: "宣纸气泡", cost: 90, stock: 999, desc: "回帖气泡换成宣纸描边。", payload: { mark: "纸" } }
+    { slug: "goldshiba", kind: "frame", name: "金柴框", cost: 88, stock: 999, desc: "橙绳环上蹲一只金柴。", payload: { mark: "柴", color: "#f59e0b", color2: "#fde68a", style: "shiba" } },
+    { slug: "grebird", kind: "frame", name: "青鸟框", cost: 88, stock: 999, desc: "绿绳环上趴一只圆鸟。", payload: { mark: "鸟", color: "#65a30d", color2: "#d9f99d", style: "bird" } },
+    { slug: "hammy", kind: "frame", name: "软鼠框", cost: 88, stock: 999, desc: "棕绳环上笑一只仓鼠。", payload: { mark: "鼠", color: "#d97706", color2: "#fed7aa", style: "hamster" } },
+    { slug: "rushduck", kind: "frame", name: "冲鸭框", cost: 88, stock: 999, desc: "橙绳环上冲一只小鸭。", payload: { mark: "鸭", color: "#f59e0b", color2: "#fef3c7", style: "duck" } },
+    { slug: "pupgreen", kind: "frame", name: "青汪框", cost: 88, stock: 999, desc: "绿绳环上趴一只青汪。", payload: { mark: "汪", color: "#65a30d", color2: "#bbf7d0", style: "puppy" } },
+    { slug: "seawave", kind: "frame", name: "海浪框", cost: 108, stock: 999, desc: "一圈浪花把头像围住。", payload: { mark: "海", color: "#0ea5e9", color2: "#7dd3fc", style: "wave" } },
+    { slug: "frost", kind: "frame", name: "霜环框", cost: 108, stock: 999, desc: "冰晶环，冷一点更好看。", payload: { mark: "霜", color: "#38bdf8", color2: "#e0f2fe", style: "ice" } },
+    { slug: "bunhead", kind: "frame", name: "萌耳框", cost: 128, stock: 999, desc: "粉耳耳机扣在头像上。", payload: { mark: "萌", color: "#fb7185", color2: "#fecdd3", style: "bunny" } },
+    { slug: "blaze", kind: "frame", name: "焰环框", cost: 128, stock: 999, desc: "一圈焰光绕着头像转。", payload: { mark: "焰", color: "#f97316", color2: "#fdba74", style: "blaze" } },
+    { slug: "cowboy", kind: "frame", name: "牛仔帽", cost: 96, stock: 999, desc: "帽檐压住头顶，像出了趟远门。", payload: { mark: "帽", color: "#78350f", color2: "#fbbf24", style: "hat" } },
+    { slug: "shibabub", kind: "bubble", name: "金柴泡", cost: 68, stock: 999, desc: "聊天框角上蹲一只金柴。", payload: { mark: "柴", color: "#f59e0b", color2: "#fff7ed", style: "shiba" } },
+    { slug: "birdbub", kind: "bubble", name: "青鸟泡", cost: 68, stock: 999, desc: "绿边聊天框，圆鸟坐在角上。", payload: { mark: "鸟", color: "#65a30d", color2: "#f7fee7", style: "bird" } },
+    { slug: "hambub", kind: "bubble", name: "软鼠泡", cost: 68, stock: 999, desc: "棕边聊天框，仓鼠探头。", payload: { mark: "鼠", color: "#d97706", color2: "#fff7ed", style: "hamster" } },
+    { slug: "duckbub", kind: "bubble", name: "冲鸭泡", cost: 68, stock: 999, desc: "橙边聊天框，小鸭探头。", payload: { mark: "鸭", color: "#f59e0b", color2: "#fffbeb", style: "duck" } },
+    { slug: "pupbub", kind: "bubble", name: "青汪泡", cost: 68, stock: 999, desc: "绿边聊天框，青汪趴着。", payload: { mark: "汪", color: "#65a30d", color2: "#f0fdf4", style: "puppy" } },
+    { slug: "corgibub", kind: "bubble", name: "柯基泡", cost: 86, stock: 999, desc: "柯基耳朵撑起聊天框。", payload: { mark: "柯", color: "#f59e0b", color2: "#fff7ed", style: "corgi" } },
+    { slug: "cloudbub", kind: "bubble", name: "云朵泡", cost: 86, stock: 999, desc: "云朵边框，发消息也软。", payload: { mark: "云", color: "#a78bfa", color2: "#f5f3ff", style: "cloud" } },
+    { slug: "catbub", kind: "bubble", name: "橘猫泡", cost: 86, stock: 999, desc: "橘猫趴在聊天框上沿。", payload: { mark: "橘", color: "#f97316", color2: "#fff7ed", style: "cat" } },
+    { slug: "blackbub", kind: "bubble", name: "小黑泡", cost: 86, stock: 999, desc: "四角探出小黑猫。", payload: { mark: "黑", color: "#111827", color2: "#f9fafb", style: "black" } },
+    { slug: "lanternbub", kind: "bubble", name: "灯笼泡", cost: 96, stock: 999, desc: "粉边灯笼框，像过节。", payload: { mark: "灯", color: "#fb7185", color2: "#fff1f2", style: "lantern" } },
+    { slug: "redcard", kind: "card", name: "红楼名片", cost: 148, stock: 999, desc: "空间封面铺一层红楼水彩。", payload: { mark: "楼", color: "#ff2442", color2: "#fbbf24", style: "seal", bg: "#fff1f2", card: "#ffffff", ink: "#881337" } },
+    { slug: "cyancard", kind: "card", name: "青纸主页", cost: 132, stock: 999, desc: "空间名片换成青纸底。", payload: { mark: "青", color: "#0ea5e9", color2: "#e0f2fe", style: "wash", bg: "#ecfeff", card: "#ffffff", ink: "#0c4a6e" } }
   ];
 
   const upd = db.prepare("UPDATE gifts SET name=?, cost=?, stock=?, desc=?, kind=?, payload=?, cover=? WHERE slug=?");
@@ -1519,14 +1841,17 @@ function migrateGifts() {
   db.prepare("DELETE FROM gifts WHERE slug IS NULL OR slug=''").run();
 
   const grant = db.prepare("INSERT OR IGNORE INTO user_items (user_id, gift_id, equipped, created_at) VALUES (?,?,?,?)");
-  const lantern = db.prepare("SELECT id FROM gifts WHERE slug='lantern'").get();
-  const goldtag = db.prepare("SELECT id FROM gifts WHERE slug='goldtag'").get();
   const qh = db.prepare("SELECT id FROM users WHERE username='qinghu'").get();
-  if (qh && lantern) grant.run(qh.id, lantern.id, 1, now());
-  if (qh && goldtag) grant.run(qh.id, goldtag.id, 1, now());
+  const goldshiba = db.prepare("SELECT id FROM gifts WHERE slug='goldshiba'").get();
+  const shibabub = db.prepare("SELECT id FROM gifts WHERE slug='shibabub'").get();
+  const redcard = db.prepare("SELECT id FROM gifts WHERE slug='redcard'").get();
+  if (qh && goldshiba) grant.run(qh.id, goldshiba.id, 1, now());
+  if (qh && shibabub) grant.run(qh.id, shibabub.id, 1, now());
+  if (qh && redcard) grant.run(qh.id, redcard.id, 1, now());
+  if (qh) db.prepare("UPDATE users SET verify_kind='official', verify_title=? WHERE id=?").run("青葫三楼官方账号", qh.id);
   const akai = db.prepare("SELECT id FROM users WHERE username='akai'").get();
-  const goldring = db.prepare("SELECT id FROM gifts WHERE slug='goldring'").get();
-  if (akai && goldring) grant.run(akai.id, goldring.id, 1, now());
+  const grebird = db.prepare("SELECT id FROM gifts WHERE slug='grebird'").get();
+  if (akai && grebird) grant.run(akai.id, grebird.id, 1, now());
 }
 
 function migrateCommentThreads() {
@@ -1583,6 +1908,7 @@ function migrateDms() {
       from_id INTEGER NOT NULL,
       to_id INTEGER NOT NULL,
       body TEXT NOT NULL,
+      videos TEXT DEFAULT '[]',
       is_read INTEGER DEFAULT 0,
       created_at TEXT NOT NULL,
       FOREIGN KEY(from_id) REFERENCES users(id),
@@ -1591,6 +1917,18 @@ function migrateDms() {
     CREATE INDEX IF NOT EXISTS idx_dms_to ON dms(to_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_dms_pair ON dms(from_id, to_id);
   `);
+  const demoBodies = [
+    "今晚三楼见，我把基地图纸发你。",
+    "好，泳池见。我带一份生存开局清单。",
+    "求一份红石电梯材料表，越简越好。",
+    "壁纸包我下好了，失效了喊我。",
+    "图纸第一张是一层仓库，你先看。"
+  ];
+  if (getSetting("seed_demo", false) !== true) {
+    const del = db.prepare("DELETE FROM dms WHERE body=?");
+    demoBodies.forEach((body) => del.run(body));
+    return;
+  }
   const count = db.prepare("SELECT COUNT(*) AS c FROM dms").get().c;
   if (count > 0) return;
   const users = db.prepare("SELECT id FROM users ORDER BY id ASC LIMIT 6").all();
@@ -1621,8 +1959,8 @@ function migrateBoards() {
   ensureCol("posts", "is_official", "ALTER TABLE posts ADD COLUMN is_official INTEGER DEFAULT 0");
 
   ensureCol("boards", "rules", "ALTER TABLE boards ADD COLUMN rules TEXT DEFAULT ''");
-  const defaultRules =
-    "发帖先看置顶，文明交流，轻松灌水。\n\n一、以下内容将被处理\n1. 违法违规、人身攻击、骚扰\n2. 广告引流、欺诈外链\n3. 恶意刷屏、引战\n\n二、灌水可以，别把水搅浑。投诉建议请走意见反馈版。";
+  ensureCol("boards", "announcement", "ALTER TABLE boards ADD COLUMN announcement TEXT DEFAULT ''");
+  const defaultRules = DEFAULT_BOARD_RULES;
   const poolRules =
     "三楼泳池坚持轻松表达。吃饭睡觉打豆豆、聊天扯淡都可以。玩得开心，别把这里当成肆意乱水、引战的地方。\n\n投诉建议请走意见反馈版。\n\n一、以下内容将严肃处理\n1. 违法违规信息\n2. 人身攻击、骚扰\n3. 广告、欺诈链接\n4. 恶意刷屏";
   db.prepare("UPDATE boards SET rules=? WHERE slug='pool'").run(poolRules);
@@ -1764,6 +2102,8 @@ function mapTrack(row) {
 function migrateMedia() {
   ensureCol("posts", "soft_id", "ALTER TABLE posts ADD COLUMN soft_id INTEGER DEFAULT 0");
   ensureCol("posts", "track_id", "ALTER TABLE posts ADD COLUMN track_id INTEGER DEFAULT 0");
+  ensureCol("posts", "videos", "ALTER TABLE posts ADD COLUMN videos TEXT DEFAULT '[]'");
+  ensureCol("dms", "videos", "ALTER TABLE dms ADD COLUMN videos TEXT DEFAULT '[]'");
   db.exec(`
     CREATE TABLE IF NOT EXISTS softwares (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1873,6 +2213,25 @@ function migrateMedals() {
   });
 }
 
+function migrateIndexes() {
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_posts_board_created ON posts(board_id, is_hidden, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_posts_home ON posts(is_hidden, is_official, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id, id);
+    CREATE INDEX IF NOT EXISTS idx_comments_user ON comments(user_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id, is_read, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_dms_peer_order ON dms(to_id, from_id, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_follows_target ON follows(target_type, target_id);
+    CREATE INDEX IF NOT EXISTS idx_user_items_user ON user_items(user_id, equipped);
+    CREATE INDEX IF NOT EXISTS idx_user_medals_user ON user_medals(user_id, equipped);
+    CREATE INDEX IF NOT EXISTS idx_user_honors_user ON user_honors(user_id);
+    CREATE INDEX IF NOT EXISTS idx_post_tips_post ON post_tips(post_id, comment_id);
+    CREATE INDEX IF NOT EXISTS idx_post_purchases_post ON post_purchases(post_id);
+    CREATE INDEX IF NOT EXISTS idx_post_purchases_user ON post_purchases(user_id);
+  `);
+}
+
 function migrateWear() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
@@ -1894,6 +2253,8 @@ function migrateWear() {
       UNIQUE(user_id, board_id)
     );
   `);
+  ensureCol("user_honors", "expires_at", "ALTER TABLE user_honors ADD COLUMN expires_at TEXT DEFAULT ''");
+  ensureCol("user_honors", "shown", "ALTER TABLE user_honors ADD COLUMN shown INTEGER DEFAULT 0");
   ensureCol("tracks", "lyrics", "ALTER TABLE tracks ADD COLUMN lyrics TEXT DEFAULT ''");
   ensureCol("tracks", "source", "ALTER TABLE tracks ADD COLUMN source TEXT DEFAULT ''");
   ensureCol("tracks", "source_id", "ALTER TABLE tracks ADD COLUMN source_id TEXT DEFAULT ''");
@@ -1910,12 +2271,520 @@ function migrateWear() {
   }
 }
 
+function migrateParse() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS parse_apis (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      api_url TEXT NOT NULL,
+      parse_type TEXT DEFAULT '',
+      resp_data TEXT DEFAULT '',
+      resp_title TEXT DEFAULT '',
+      resp_video TEXT DEFAULT '',
+      resp_img TEXT DEFAULT '',
+      sort INTEGER DEFAULT 0,
+      enabled INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS parse_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      platform TEXT DEFAULT '',
+      api_id INTEGER DEFAULT 0,
+      ok INTEGER DEFAULT 0,
+      duration_ms INTEGER DEFAULT 0,
+      cost INTEGER DEFAULT 0,
+      title TEXT DEFAULT '',
+      result TEXT DEFAULT '{}',
+      error TEXT DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_parse_logs_user ON parse_logs(user_id, id DESC);
+  `);
+  ensureSettings();
+  const row = db.prepare("SELECT value FROM settings WHERE key=?").get("parse_cost");
+  if (!row) setSetting("parse_cost", 1);
+  const apiUrl = "https://syapi.chuangye.site/home/api?type=dsp&uid=5818526&key=ilmprtyzJLMOPSUX34&url={url}";
+  const exists = db.prepare("SELECT id FROM parse_apis WHERE api_url LIKE ?").get("%syapi.chuangye.site%");
+  if (!exists) {
+    db.prepare(
+      "INSERT INTO parse_apis (name, slug, api_url, parse_type, resp_data, resp_title, resp_video, resp_img, sort, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)"
+    ).run("创叶解析", "*", apiUrl, "", "", "", "", "", 0, 1, now());
+  }
+  purgeParseLogs();
+}
+
+function purgeParseLogs() {
+  const cut = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("DELETE FROM parse_logs WHERE created_at < ?").run(cut);
+}
+
+function mentionUsers(raw) {
+  let ids = [];
+  try { ids = JSON.parse(raw || "[]"); } catch { ids = []; }
+  if (!Array.isArray(ids)) ids = [];
+  return ids.map((id) => {
+    const u = db.prepare("SELECT id, nickname, avatar FROM users WHERE id=?").get(Number(id));
+    return u ? { id: u.id, nickname: u.nickname, avatar: u.avatar } : null;
+  }).filter(Boolean);
+}
+
+function tipGiversOf(postId, commentId) {
+  const rows = db.prepare(
+    `SELECT t.id AS tip_id, t.from_user_id AS uid, t.amount, t.reason, t.created_at, u.nickname, u.avatar
+     FROM post_tips t JOIN users u ON u.id=t.from_user_id
+     WHERE t.post_id=? AND COALESCE(t.comment_id,0)=?
+     ORDER BY t.id DESC LIMIT 40`
+  ).all(postId, commentId || 0);
+  return rows.map((r) => ({
+    tipId: r.tip_id,
+    id: r.uid,
+    userId: r.uid,
+    nickname: r.nickname,
+    avatar: r.avatar,
+    amount: r.amount,
+    reason: r.reason || "",
+    createdAt: r.created_at
+  }));
+}
+
+function isMutual(a, b) {
+  if (!a || !b || a === b) return false;
+  const f1 = db.prepare("SELECT 1 FROM follows WHERE user_id=? AND target_type='user' AND target_id=?").get(a, b);
+  const f2 = db.prepare("SELECT 1 FROM follows WHERE user_id=? AND target_type='user' AND target_id=?").get(b, a);
+  return !!(f1 && f2);
+}
+
+function mutualFriends(userId) {
+  return db.prepare(
+    `SELECT u.* FROM follows f
+     JOIN follows r ON r.user_id=f.target_id AND r.target_id=f.user_id AND r.target_type='user'
+     JOIN users u ON u.id=f.target_id
+     WHERE f.user_id=? AND f.target_type='user'
+     ORDER BY u.nickname COLLATE NOCASE`
+  ).all(userId);
+}
+
+function isPrettyUin(n) {
+  const num = Number(n);
+  if (!Number.isInteger(num) || num < UIN_MIN || num > UIN_MAX) return false;
+  const s = String(num);
+  if (/^(\d)\1{2,}$/.test(s)) return true;
+  if (/^(\d{2})\1+$/.test(s)) return true;
+  if (s.length >= 4 && s.length % 2 === 0 && s.slice(0, s.length / 2) === s.slice(s.length / 2)) return true;
+  if (/(?:0123|1234|2345|3456|4567|5678|6789|9876|8765|7654|6543|5432|4321|3210)/.test(s)) return true;
+  if (/(?:520|1314|666|888|999)$/.test(s)) return true;
+  return [10000, 10010, 10086, 12345, 54321, 11111, 22222, 66666, 88888, 99999, 168168, 520131, 520520, 131452, 666666, 888888].includes(num);
+}
+
+function prettyCost(n) {
+  const s = String(n);
+  if (/^(\d)\1{5}$/.test(s)) return 888;
+  if (/^(\d)\1{4}$/.test(s)) return 588;
+  if (/^(\d)\1{3}$/.test(s)) return 388;
+  if ([10000, 10010, 10086].includes(Number(n))) return 520;
+  if (/1314$/.test(s) || /520520/.test(s)) return 288;
+  if (/520$/.test(s) || /666$/.test(s) || /888$/.test(s) || /999$/.test(s)) return 168;
+  if (/^(\d{2})\1+$/.test(s)) return 128;
+  return 88;
+}
+
+let prettyPoolCache = null;
+function prettyPool() {
+  if (prettyPoolCache) return prettyPoolCache;
+  const out = new Set([10000, 10010, 10086, 12345, 54321, 11111, 22222, 66666, 88888, 99999, 168168, 520131, 520520, 131452, 666666, 888888]);
+  const digits = [1, 2, 3, 5, 6, 8, 9];
+  digits.forEach((d) => {
+    out.add(Number(String(d).repeat(4)));
+    out.add(Number(String(d).repeat(5)));
+    out.add(Number(String(d).repeat(6)));
+  });
+  digits.forEach((a) => {
+    digits.forEach((b) => {
+      if (a === b) return;
+      out.add(Number(`${a}${a}${b}${b}`));
+      out.add(Number(`${a}${b}${a}${b}`));
+      out.add(Number(`${a}${b}${a}${b}${a}${b}`));
+    });
+  });
+  [520, 666, 888, 999, 1314].forEach((suf) => {
+    for (let p = 1; p <= 88; p += 1) {
+      const n = Number(`${p}${suf}`);
+      if (n >= UIN_MIN && n <= UIN_MAX) out.add(n);
+    }
+  });
+  prettyPoolCache = [...out].filter((n) => n >= UIN_MIN && n <= UIN_MAX).sort((a, b) => prettyCost(b) - prettyCost(a) || a - b);
+  return prettyPoolCache;
+}
+
+function prettyShop(limit = 24) {
+  try {
+    const taken = new Set(
+      db.prepare("SELECT uin FROM users WHERE uin IS NOT NULL").all().map((r) => Number(r.uin))
+    );
+    const list = [];
+    const cap = Math.max(1, Math.min(200, Number(limit) || 24));
+    const rows = db.prepare("SELECT uin, cost FROM pretty_items WHERE enabled=1 ORDER BY cost DESC, uin ASC").all();
+    rows.some((r) => {
+      const n = Number(r.uin);
+      if (taken.has(n)) return false;
+      list.push({ uin: n, cost: Number(r.cost) || prettyCost(n) });
+      return list.length >= cap;
+    });
+    return list;
+  } catch {
+    return [];
+  }
+}
+
+function isVip(row) {
+  if (!row || !row.vip_until) return false;
+  const t = new Date(row.vip_until).getTime();
+  return Number.isFinite(t) && t > Date.now();
+}
+
+function vipMeta(row) {
+  const until = (row && row.vip_until) || "";
+  if (!isVip(row)) {
+    return { vip: false, vipUntil: until, vipTier: "", vipLevel: 0, vipLabel: "" };
+  }
+  const tier = row.vip_tier === "svip" ? "svip" : "vip";
+  const level = Math.max(1, Math.min(9, Number(row.vip_level) || 1));
+  return {
+    vip: true,
+    vipUntil: until,
+    vipTier: tier,
+    vipLevel: level,
+    vipLabel: `${tier === "svip" ? "SVIP" : "VIP"}${level}`
+  };
+}
+
+function normalizeVipPlan(p) {
+  const slug = String((p && p.slug) || "").toLowerCase() === "svip" ? "svip" : "vip";
+  return {
+    slug,
+    name: String((p && p.name) || (slug === "svip" ? "SVIP" : "VIP")).slice(0, 12),
+    days: Math.max(1, Math.min(3650, Math.floor(Number(p && p.days) || 30))),
+    cost: Math.max(0, Math.min(99999, Math.floor(Number(p && p.cost) || 0))),
+    enabled: !(p && (p.enabled === false || p.enabled === 0))
+  };
+}
+
+function defaultVipPlans() {
+  const cost = Number(getSetting("vip_cost", 88)) || 88;
+  const days = Number(getSetting("vip_days", 30)) || 30;
+  return [
+    normalizeVipPlan({ slug: "vip", name: "VIP", days, cost }),
+    normalizeVipPlan({ slug: "svip", name: "SVIP", days, cost: Math.max(cost * 3, 288) })
+  ];
+}
+
+function getVipPlans() {
+  try {
+    const raw = getSetting("vip_plans", null);
+    const list = Array.isArray(raw) ? raw : [];
+    if (Array.isArray(list) && list.length) {
+      const seen = new Set();
+      const out = [];
+      list.forEach((p) => {
+        const n = normalizeVipPlan(p);
+        if (seen.has(n.slug)) return;
+        seen.add(n.slug);
+        out.push(n);
+      });
+      if (!seen.has("vip")) out.unshift(normalizeVipPlan({ slug: "vip", cost: Number(getSetting("vip_cost", 88)) || 88 }));
+      if (!seen.has("svip")) out.push(normalizeVipPlan({ slug: "svip", cost: 288 }));
+      return out;
+    }
+  } catch {
+    /* fallback */
+  }
+  return defaultVipPlans();
+}
+
+function setVipPlans(list) {
+  const incoming = Array.isArray(list) ? list.map(normalizeVipPlan) : [];
+  const vip = incoming.find((p) => p.slug === "vip") || defaultVipPlans()[0];
+  const svip = incoming.find((p) => p.slug === "svip") || defaultVipPlans()[1];
+  const plans = [vip, svip];
+  setSetting("vip_plans", plans);
+  setSetting("vip_cost", vip.cost);
+  setSetting("vip_days", vip.days);
+  return plans;
+}
+
+function prettyCatalog(q) {
+  const taken = new Map(
+    db.prepare("SELECT uin, id, nickname FROM users WHERE uin IS NOT NULL").all()
+      .map((r) => [Number(r.uin), { userId: r.id, nickname: r.nickname }])
+  );
+  const key = String(q || "").trim();
+  return db.prepare("SELECT uin, cost, enabled, created_at FROM pretty_items ORDER BY enabled DESC, cost DESC, uin ASC").all().map((r) => {
+    const hold = taken.get(Number(r.uin));
+    return {
+      uin: Number(r.uin),
+      cost: Number(r.cost) || prettyCost(r.uin),
+      enabled: !!r.enabled,
+      taken: !!hold,
+      holder: hold ? hold.nickname : ""
+    };
+  }).filter((item) => !key || String(item.uin).includes(key) || String(item.holder || "").includes(key));
+}
+
+function upsertPrettyItem(raw) {
+  const n = Math.floor(Number(raw && raw.uin));
+  if (!validUin(n)) {
+    const err = new Error("号码需为 10001 到 99999999999 的整数");
+    err.status = 400;
+    throw err;
+  }
+  const cost = Math.max(1, Math.min(99999, Math.floor(Number(raw.cost) || prettyCost(n))));
+  const enabled = raw.enabled === false || raw.enabled === 0 ? 0 : 1;
+  const exists = db.prepare("SELECT uin FROM pretty_items WHERE uin=?").get(n);
+  if (exists) db.prepare("UPDATE pretty_items SET cost=?, enabled=? WHERE uin=?").run(cost, enabled, n);
+  else db.prepare("INSERT INTO pretty_items (uin, cost, enabled, created_at) VALUES (?,?,?,?)").run(n, cost, enabled, now());
+  return prettyCatalog().find((x) => x.uin === n);
+}
+
+function seedPrettyItems() {
+  const count = db.prepare("SELECT COUNT(*) AS c FROM pretty_items").get().c;
+  if (count) return;
+  const ins = db.prepare("INSERT OR IGNORE INTO pretty_items (uin, cost, enabled, created_at) VALUES (?,?,1,?)");
+  prettyPool().slice(0, 48).forEach((n) => ins.run(n, prettyCost(n), now()));
+}
+
+function assignUin(userId) {
+  const existing = db.prepare("SELECT uin FROM users WHERE id=?").get(userId);
+  if (existing && Number(existing.uin) >= UIN_MIN) return existing.uin;
+  return db.transaction(() => {
+    const me = db.prepare("SELECT * FROM users WHERE id=?").get(userId);
+    const takenSuper = db.prepare("SELECT id FROM users WHERE uin=?").get(SUPER_UIN);
+    if (!takenSuper && me && (me.username === "admin" || me.username === "qinghu" || me.role === "admin")) {
+      db.prepare("UPDATE users SET uin=?, uin_pretty=? WHERE id=?").run(SUPER_UIN, isPrettyUin(SUPER_UIN) ? 1 : 0, userId);
+      return SUPER_UIN;
+    }
+    const row = db.prepare("SELECT MAX(uin) AS m FROM users").get();
+    let n = Math.max(UIN_MIN, Number((row && row.m) || 0) + 1);
+    if (n === SUPER_UIN) n = SUPER_UIN + 1;
+    db.prepare("UPDATE users SET uin=?, uin_pretty=? WHERE id=?").run(n, isPrettyUin(n) ? 1 : 0, userId);
+    return n;
+  })();
+}
+
+function migrateSuperUin() {
+  try {
+    const taken = db.prepare("SELECT id FROM users WHERE uin=?").get(SUPER_UIN);
+    if (taken) return;
+    const owner = getSetting("site_owner", "") || "admin";
+    const u = db.prepare(
+      "SELECT * FROM users WHERE username IN (?, 'admin', 'qinghu') ORDER BY CASE username WHEN ? THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, id ASC"
+    ).get(owner, owner);
+    if (!u) return;
+    db.prepare("UPDATE users SET uin=?, uin_pretty=? WHERE id=?").run(SUPER_UIN, isPrettyUin(SUPER_UIN) ? 1 : 0, u.id);
+  } catch {
+    /* ignore */
+  }
+}
+
+function deletePrettyItem(uin) {
+  const n = Math.floor(Number(uin));
+  const row = db.prepare("SELECT uin FROM pretty_items WHERE uin=?").get(n);
+  if (!row) {
+    const err = new Error("号码不在号店");
+    err.status = 404;
+    throw err;
+  }
+  db.prepare("DELETE FROM pretty_items WHERE uin=?").run(n);
+  return { deleted: true, uin: n };
+}
+
+function deleteAccount(userId) {
+  const row = db.prepare("SELECT * FROM users WHERE id=?").get(userId);
+  if (!row) {
+    const err = new Error("用户不存在");
+    err.status = 404;
+    throw err;
+  }
+  if (Number(row.uin) === SUPER_UIN || isSuper(row)) {
+    const err = new Error("超级管理员不能注销");
+    err.status = 403;
+    throw err;
+  }
+  const ghost = `gone_${userId}_${Date.now().toString(36)}`;
+  db.prepare(
+    `UPDATE users SET username=?, nickname='已注销', bio='', avatar=?, password_hash=?,
+     banned_until=?, muted_until='', city='', birthday='', gender='保密',
+     uin=NULL, uin_pretty=0, vip_until='' WHERE id=?`
+  ).run(ghost, avatarOf(ghost), "deleted", "9999-12-31T00:00:00.000Z", userId);
+  try { db.prepare("DELETE FROM follows WHERE user_id=? OR (target_type='user' AND target_id=?)").run(userId, userId); } catch { /* ignore */ }
+  return { deleted: true };
+}
+
+function setUserUin(userId, raw) {
+  const n = Math.floor(Number(raw));
+  if (!validUin(n)) {
+    const err = new Error("青葫号需为 10001 到 99999999999 的整数");
+    err.status = 400;
+    throw err;
+  }
+  const taken = db.prepare("SELECT id FROM users WHERE uin=? AND id<>?").get(n, userId);
+  if (taken) {
+    const err = new Error("这个青葫号已被占用");
+    err.status = 400;
+    throw err;
+  }
+  db.prepare("UPDATE users SET uin=?, uin_pretty=? WHERE id=?").run(n, isPrettyUin(n) ? 1 : 0, userId);
+  return n;
+}
+
+function claimPrettyUin(userId, raw) {
+  const n = Math.floor(Number(raw));
+  const item = db.prepare("SELECT * FROM pretty_items WHERE uin=?").get(n);
+  if (!item || !item.enabled) {
+    const err = new Error("这个靓号未上架");
+    err.status = 400;
+    throw err;
+  }
+  const user = db.prepare("SELECT * FROM users WHERE id=?").get(userId);
+  if (!user) {
+    const err = new Error("用户不存在");
+    err.status = 404;
+    throw err;
+  }
+  if (Number(user.uin) === n) {
+    const err = new Error("已经是这个号");
+    err.status = 400;
+    throw err;
+  }
+  const cost = Number(item.cost) || prettyCost(n);
+  if ((user.gourd || 0) < cost) {
+    const err = new Error(`葫芦不够，需要 ${cost}`);
+    err.status = 400;
+    throw err;
+  }
+  return db.transaction(() => {
+    const fresh = db.prepare("SELECT * FROM users WHERE id=?").get(userId);
+    if ((fresh.gourd || 0) < cost) {
+      const err = new Error(`葫芦不够，需要 ${cost}`);
+      err.status = 400;
+      throw err;
+    }
+    const taken = db.prepare("SELECT id FROM users WHERE uin=?").get(n);
+    if (taken) {
+      const err = new Error("这个靓号已被占用");
+      err.status = 400;
+      throw err;
+    }
+    db.prepare("UPDATE users SET gourd = gourd - ?, uin=?, uin_pretty=1 WHERE id=?").run(cost, n, userId);
+    return { uin: n, cost };
+  })();
+}
+
+function extendVip(userId, days, tier) {
+  const d = Math.max(1, Math.min(3650, Math.floor(Number(days) || 30)));
+  const want = String(tier || "vip").toLowerCase() === "svip" ? "svip" : "vip";
+  const row = db.prepare("SELECT vip_until, vip_tier, vip_level FROM users WHERE id=?").get(userId);
+  const active = isVip(row);
+  const curTier = active && row.vip_tier === "svip" ? "svip" : (active ? "vip" : "");
+  const nextTier = want === "svip" || curTier === "svip" ? "svip" : "vip";
+  const level = Math.min(9, Math.max(1, Number((row && row.vip_level) || 0) + 1));
+  const base = active ? new Date(row.vip_until) : new Date();
+  base.setDate(base.getDate() + d);
+  const until = base.toISOString();
+  db.prepare("UPDATE users SET vip_until=?, vip_tier=?, vip_level=? WHERE id=?").run(until, nextTier, level, userId);
+  return { until, tier: nextTier, level, days: d };
+}
+
+function hotNeed() {
+  return Number(getSetting("hot_comments", 150)) || 150;
+}
+
+function maybePromoteHot(postId) {
+  const post = db.prepare("SELECT * FROM posts WHERE id=?").get(postId);
+  if (!post) return null;
+  if ((post.comment_count || 0) < hotNeed()) return post;
+  db.prepare("UPDATE posts SET is_hot=1, is_locked=0 WHERE id=?").run(post.id);
+  return db.prepare("SELECT * FROM posts WHERE id=?").get(post.id);
+}
+
+function migrateSocial() {
+  ensureSettings();
+  ensureCol("posts", "is_hot", "ALTER TABLE posts ADD COLUMN is_hot INTEGER DEFAULT 0");
+  ensureCol("posts", "is_certified", "ALTER TABLE posts ADD COLUMN is_certified INTEGER DEFAULT 0");
+  ensureCol("posts", "certified_at", "ALTER TABLE posts ADD COLUMN certified_at TEXT DEFAULT ''");
+  ensureCol("users", "uin", "ALTER TABLE users ADD COLUMN uin INTEGER");
+  ensureCol("users", "vip_until", "ALTER TABLE users ADD COLUMN vip_until TEXT DEFAULT ''");
+  ensureCol("users", "uin_pretty", "ALTER TABLE users ADD COLUMN uin_pretty INTEGER DEFAULT 0");
+  ensureCol("users", "vip_tier", "ALTER TABLE users ADD COLUMN vip_tier TEXT DEFAULT ''");
+  ensureCol("users", "vip_level", "ALTER TABLE users ADD COLUMN vip_level INTEGER DEFAULT 0");
+  ensureCol("users", "cover", "ALTER TABLE users ADD COLUMN cover TEXT DEFAULT ''");
+  ensureCol("users", "hometown", "ALTER TABLE users ADD COLUMN hometown TEXT DEFAULT ''");
+  ensureCol("users", "school", "ALTER TABLE users ADD COLUMN school TEXT DEFAULT ''");
+  db.exec(`CREATE TABLE IF NOT EXISTS user_photos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    url TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_uin ON users(uin)");
+  } catch {
+    /* duplicate uin */
+  }
+  db.exec(`CREATE TABLE IF NOT EXISTS pretty_items (
+    uin INTEGER PRIMARY KEY,
+    cost INTEGER NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  )`);
+  seedPrettyItems();
+  db.prepare("SELECT id FROM users WHERE uin IS NULL OR uin=0 ORDER BY id").all().forEach((r) => {
+    try { assignUin(r.id); } catch { /* skip */ }
+  });
+  db.prepare("SELECT id, uin FROM users WHERE uin IS NOT NULL").all().forEach((r) => {
+    db.prepare("UPDATE users SET uin_pretty=? WHERE id=?").run(isPrettyUin(r.uin) ? 1 : 0, r.id);
+  });
+  db.prepare("UPDATE users SET vip_tier='vip', vip_level=CASE WHEN COALESCE(vip_level,0)<1 THEN 1 ELSE vip_level END WHERE vip_until IS NOT NULL AND vip_until<>'' AND (vip_tier IS NULL OR vip_tier='')").run();
+  const need = hotNeed();
+  db.prepare("UPDATE posts SET is_hot=1, is_locked=0 WHERE COALESCE(comment_count,0) >= ?").run(need);
+  if (!db.prepare("SELECT 1 AS c FROM settings WHERE key=?").get("hot_comments")) setSetting("hot_comments", 150);
+  if (!db.prepare("SELECT 1 AS c FROM settings WHERE key=?").get("vip_cost")) setSetting("vip_cost", 88);
+  if (!db.prepare("SELECT 1 AS c FROM settings WHERE key=?").get("vip_days")) setSetting("vip_days", 30);
+  if (!getSetting("vip_plans", "")) setVipPlans(defaultVipPlans());
+}
+
+function migrateTips() {
+  ensureCol("posts", "tip_count", "ALTER TABLE posts ADD COLUMN tip_count INTEGER DEFAULT 0");
+  ensureCol("posts", "mentions", "ALTER TABLE posts ADD COLUMN mentions TEXT DEFAULT '[]'");
+  ensureCol("comments", "tip_count", "ALTER TABLE comments ADD COLUMN tip_count INTEGER DEFAULT 0");
+  db.exec(`CREATE TABLE IF NOT EXISTS post_tips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL,
+    from_user_id INTEGER NOT NULL,
+    to_user_id INTEGER NOT NULL,
+    amount INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  )`);
+  ensureCol("post_tips", "comment_id", "ALTER TABLE post_tips ADD COLUMN comment_id INTEGER DEFAULT 0");
+  ensureCol("notifications", "comment_id", "ALTER TABLE notifications ADD COLUMN comment_id INTEGER DEFAULT 0");
+  if (!getSetting("mini_app_chiyun_seeded", false)) {
+    const saved = getSetting("mini_apps", null);
+    if (Array.isArray(saved) && saved.length && !saved.some((a) => a && (a.id === "chiyun" || a.path === "/chiyun"))) {
+      setSetting("mini_apps", [...saved, { id: "chiyun", name: "赤云", path: "/chiyun", color: "#e11d48", mark: "云" }].slice(0, 12));
+    }
+    setSetting("mini_app_chiyun_seeded", true);
+  }
+}
+
 module.exports = {
   db,
   now,
   levelOf,
   titleOf,
   publicUser,
+  publicUserLite,
   bumpExp,
   notify,
   seedIfEmpty,
@@ -1936,16 +2805,47 @@ module.exports = {
   isAdmin,
   isSuper,
   canModerate,
+  isModerator,
+  staffBoards,
   ageOf,
   mapSoft,
   mapTrack,
   migrateMedia,
+  migrateIndexes,
   migrateMedals,
   MEDALS,
   honorPreset,
   migrateWear,
+  migrateParse,
+  purgeParseLogs,
+  migrateTips,
+  migrateSocial,
+  maybePromoteHot,
+  hotNeed,
+  assignUin,
+  prettyShop,
+  prettyCost,
+  isPrettyUin,
+  claimPrettyUin,
+  setUserUin,
+  extendVip,
+  isVip,
+  getVipPlans,
+  setVipPlans,
+  prettyCatalog,
+  upsertPrettyItem,
+  deletePrettyItem,
+  migrateSuperUin,
+  deleteAccount,
+  UIN_MIN,
+  UIN_MAX,
+  SUPER_UIN,
+  isMutual,
+  mutualFriends,
+  tipGiversOf,
   getLevels,
   getExpRules,
+  getSetting,
   setSetting,
   expOf,
   medalCatalog,
@@ -1954,6 +2854,9 @@ module.exports = {
   setWornMedals,
   grantMedal,
   upsertHonor,
+  setShownHonor,
+  listMiniApps,
+  saveMiniApps,
   logAdmin,
   adminLogs,
   isInstalled,

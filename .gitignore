@@ -185,3 +185,4 @@ backend/uploads/*
 !backend/uploads/.gitkeep
 .monkeycode/
 .monkeycode-tmp-files/
+ncm-api/

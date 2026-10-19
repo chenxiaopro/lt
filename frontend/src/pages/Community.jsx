@@ -4,6 +4,9 @@ import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
 import { ChatIco, EyeIco } from "../icons.jsx";
 import BoardIcon from "../components/BoardIcon.jsx";
+import { CellSkeleton } from "../components/Skeleton.jsx";
+import { TitleBadges } from "../components/PostCard.jsx";
+import { UserName } from "../components/Dress.jsx";
 
 function newsDate(iso) {
   const d = new Date(iso);
@@ -27,11 +30,18 @@ function BoardCell({ to, slug, color, name, badge, iconName }) {
 export default function Community() {
   const { user } = useAuth();
   const [boards, setBoards] = useState([]);
-  const [banner, setBanner] = useState(null);
+  const [news, setNews] = useState([]);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    api("/api/boards").then((d) => setBoards(d.boards || [])).catch(() => {});
-    api("/api/home").then((d) => setBanner((d.banners || [])[0] || null)).catch(() => {});
+    setReady(false);
+    Promise.all([
+      api("/api/boards").then((d) => setBoards(d.boards || [])).catch(() => setBoards([])),
+      api("/api/home").then((d) => {
+        const list = (d.community && d.community.length) ? d.community : (d.banners || []).slice(0, 1);
+        setNews(list);
+      }).catch(() => setNews([]))
+    ]).finally(() => setReady(true));
   }, [user]);
 
   const notice = boards.find((b) => b.slug === "notice");
@@ -44,17 +54,20 @@ export default function Community() {
   return (
     <div className="layout single">
       <div className="hx-forum rec">
-        {banner ? (
-          <Link className="hx-news" to={`/post/${banner.id}`}>
+        {news.map((banner, i) => (
+          <Link className="hx-news" key={banner.id} to={`/post/${banner.id}`}>
             <div className="hx-news-thumb">
-              {(banner.images || [])[0] ? <img src={banner.images[0]} alt="" /> : <div className="forum-banner-ph" />}
+              {(banner.images || [])[0] ? <img src={banner.images[0]} alt="" loading={i ? "lazy" : "eager"} decoding="async" /> : <div className="forum-banner-ph" />}
               {(banner.images || []).length > 1 ? <em>{banner.images.length}图</em> : null}
             </div>
             <div className="hx-news-body">
-              <h3>{banner.title}</h3>
+              <h3 className="post-title">
+                <TitleBadges post={banner} />
+                <span className="post-title-text">{banner.title}</span>
+              </h3>
               <p>{banner.content || banner.board?.name || ""}</p>
               <div className="meta">
-                <span className="who">{banner.author?.nickname || "青葫"}</span>
+                <span className="who">{banner.author ? <UserName user={banner.author} withLevel={false} /> : "青葫"}</span>
                 <span className="stats">
                   {newsDate(banner.createdAt)}
                   <EyeIco size={13} />
@@ -65,9 +78,10 @@ export default function Community() {
               </div>
             </div>
           </Link>
-        ) : null}
+        ))}
 
         <div className="hx-sec"><span>我的版块</span></div>
+        {!ready ? <CellSkeleton /> : (
         <div className="hx-cells">
           <BoardCell to="/?tab=follow" slug="follow" name="我的关注" />
           {mineGrid.map((b) => (
@@ -82,6 +96,7 @@ export default function Community() {
           ))}
           {odd ? <span className="hx-cell slot" /> : null}
         </div>
+        )}
 
         {sysBoards.length ? (
           <>

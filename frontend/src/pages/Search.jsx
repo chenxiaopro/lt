@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
-import { PostRow, Level } from "../components/PostCard.jsx";
+import { PostRow } from "../components/PostCard.jsx";
 import BoardIcon from "../components/BoardIcon.jsx";
-import { UserAvatar } from "../components/Dress.jsx";
+import { UserAvatar, UserName } from "../components/Dress.jsx";
 
 export default function Search() {
   const [sp, setSp] = useSearchParams();
@@ -22,6 +22,10 @@ export default function Search() {
   }, [q]);
 
   useEffect(() => {
+    if (/^\d+$/.test(q)) setTab("users");
+  }, [q]);
+
+  useEffect(() => {
     const t = setTimeout(() => {
       const next = kw.trim();
       if (next === q) return;
@@ -35,7 +39,7 @@ export default function Search() {
       <div className="feed search-page">
         <div className="card search-wrap">
           <form className="circle-search" onSubmit={(e) => { e.preventDefault(); setSp(kw.trim() ? { q: kw.trim() } : {}); }}>
-            <input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="搜帖子、用户、版块" aria-label="搜索" enterKeyHint="search" />
+            <input value={kw} onChange={(e) => setKw(e.target.value)} placeholder="搜帖子、用户、青葫号、版块" aria-label="搜索" enterKeyHint="search" />
             <button className="search-go" type="submit">搜索</button>
           </form>
         </div>
@@ -52,8 +56,8 @@ export default function Search() {
           <Link className="rank-item" key={u.id} to={`/user/${u.id}`}>
             <UserAvatar user={u} size="sm" />
             <div className="grow">
-              <b>{u.nickname}</b> <Level user={u} />
-              <div className="hint">{u.bio}</div>
+              <b><UserName user={u} /></b>
+              <div className="hint">青葫号 {u.uin}{u.bio ? ` · ${u.bio}` : ""}</div>
             </div>
           </Link>
         ))}

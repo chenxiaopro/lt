@@ -10,7 +10,7 @@ export function TrackChip({ track }) {
   if (!track) return null;
   const on = p && p.current && p.current.id === track.id && p.playing;
   return (
-    <button type="button" className={`track-chip ${on ? "on" : ""}`} onClick={() => p && p.play(track)}>
+    <button type="button" className={`track-chip ${on ? "on" : ""}`} onClick={() => p && p.play(track, [track])}>
       <MusicIco size={16} />
       <span>{track.title}</span>
       <em>{on ? "播放中" : "播放"}</em>
@@ -173,7 +173,11 @@ export default function Music() {
                   {s.cover ? <img src={s.cover} alt="" /> : <i className="music-ph">{s.title.slice(0, 1)}</i>}
                   <div className="grow">
                     <b>{s.title}</b>
-                    <span>{s.artist}{s.lyrics ? " · 有歌词" : ""}{s.url ? " · 可试听" : " · 无试听"}</span>
+                    <span>
+                      {s.artist}
+                      {s.lyrics ? " · 有歌词" : ""}
+                      {s.url ? (s.trial || s.preview ? " · 仅30秒试听" : " · 可试听整首") : " · 无试听"}
+                    </span>
                   </div>
                 </button>
                 <button type="button" className="music-pin" disabled={busy || !s.url} onClick={() => onImport(s)}>加入</button>

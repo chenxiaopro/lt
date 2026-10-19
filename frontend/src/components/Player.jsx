@@ -61,6 +61,18 @@ export function PlayerProvider({ children }) {
       if (!pool.length) return;
       const idx = current ? pool.findIndex((t) => t.id === current.id) : -1;
       const next = pool[(idx + dir + pool.length) % pool.length];
+      if (next && current && next.id === current.id) {
+        const el = audioRef.current;
+        if (el) {
+          el.currentTime = 0;
+          setCurrentTime(0);
+          setProgress(0);
+          const run = el.play();
+          if (run && run.catch) run.catch(() => setPlaying(false));
+        }
+        setPlaying(true);
+        return;
+      }
       setCurrent(next);
       setPlaying(true);
     }

@@ -54,6 +54,10 @@ if [ ! -f .env ]; then
 JWT_SECRET=${SECRET}
 PORT=3001
 NODE_ENV=production
+USER_LLM_API_KEY=
+USER_LLM_BASE_URL=https://api.deepseek.com/v1
+USER_LLM_MODEL=deepseek-v4-pro
+YY_API=
 EOF
   echo "已自动生成密钥文件 backend/.env"
 else

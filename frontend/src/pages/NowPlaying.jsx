@@ -40,9 +40,12 @@ export default function NowPlaying() {
   });
 
   useEffect(() => {
-    if (activeRef.current && activeRef.current.scrollIntoView) {
-      activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
+    const el = activeRef.current;
+    if (!el) return;
+    const box = el.parentElement;
+    if (!box) return;
+    const top = el.offsetTop - box.clientHeight / 2 + el.offsetHeight / 2;
+    box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
   }, [active]);
 
   if (!t) {

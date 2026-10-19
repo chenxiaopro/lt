@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
-import { UserAvatar } from "../components/Dress.jsx";
+import { UserAvatar, UserName } from "../components/Dress.jsx";
 import { BackIco } from "../icons.jsx";
 
 export default function Level() {
@@ -35,7 +35,7 @@ export default function Level() {
         <div className="lv-hero">
           <UserAvatar user={user} size="xl" />
           <h2>
-            {user.nickname}
+            <UserName user={user} withLevel={false} />
             <i className="lv-badge" style={{ background: color }}>LV {user.level}</i>
           </h2>
           <div className="xp-track lg" style={{ "--xp": color }} aria-label="经验进度">

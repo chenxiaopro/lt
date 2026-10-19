@@ -102,6 +102,9 @@ export const MicIco = (p) => (
 export const ImageIco = (p) => (
   <Ico {...p}><rect x="4" y="5" width="16" height="14" rx="2" /><circle cx="9" cy="10" r="1.5" /><path d="m8 16 3-3 3 3 2-2 3 2" /></Ico>
 );
+export const VideoIco = (p) => (
+  <Ico {...p}><rect x="3.5" y="6" width="12.5" height="12" rx="2" /><path d="m16 10 4.5-2.5v9L16 14z" /></Ico>
+);
 export const CameraIco = (p) => (
   <Ico {...p}>
     <path d="M9 7 10.2 5h3.6L15 7h4a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h4z" />

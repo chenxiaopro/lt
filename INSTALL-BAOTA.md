@@ -11,7 +11,7 @@
 
 1. 一台已经安装好「宝塔面板」的 Linux 云服务器。
 2. 一个域名，已经在域名后台把 **A 记录** 解析到这台服务器的公网 IP。解析生效大约 1～10 分钟。
-3. 本安装包：`qinghu-sanlou-1.0.0.zip`（空库全新安装，没有演示账号）。
+3. 本安装包：`qinghu-sanlou-1.0.32.zip`（空库全新安装，没有演示账号）。
 
 云服务器安全组 / 防火墙请放行 **80** 和 **443**。不要放行 3001。
 
@@ -111,15 +111,16 @@ yum install -y devtoolset-7-gcc devtoolset-7-gcc-c++ make python3
 1. 左侧点 **文件**。
 2. 进入目录：`/www/wwwroot/你的域名/`
    例如 `/www/wwwroot/bbs.abc.com/`
-3. 点上方 **上传**，把电脑上的 `qinghu-sanlou-1.0.0.zip` 传上去。等上传 100%。
+3. 点上方 **上传**，把电脑上的 `qinghu-sanlou-1.0.32.zip` 传上去。等上传 100%。
 4. 在文件列表里找到这个 zip，**右键 → 解压** → 确定。
 5. 解压后会出现文件夹 `qinghu-sanlou`。点进去，你会看到：
    - `backend`
    - `frontend`
    - `deploy`
-   - `INSTALL-BAOTA.md`
-   - `一键安装.sh`
-   - `README.md`
+    - `INSTALL-BAOTA.md`
+    - `一键安装.sh`
+    - `README.md`
+    - `安装电台接口.sh`
 6. **把这些内容移到上一层**（很重要，不要少这一步）：
    - 在 `qinghu-sanlou` 文件夹里，全选上面这些文件和文件夹。
    - 点「剪切」。
@@ -235,7 +236,8 @@ index index.html;
 在 `server { }` 里面、其他 `location` 附近，加入（如果已经有同名 location 就改成下面这样）：
 
 ```nginx
-client_max_body_size 16m;
+client_max_body_size 100m;
+client_body_timeout 300s;
 
 location ^~ /api/ {
     proxy_pass http://127.0.0.1:3001;
@@ -244,7 +246,8 @@ location ^~ /api/ {
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_read_timeout 60s;
+    proxy_read_timeout 300s;
+    proxy_send_timeout 300s;
 }
 
 location ^~ /uploads/ {
@@ -299,6 +302,59 @@ location / {
 - 打开 `https://你的域名/api/health` 能看到 `"ok":true`。
 - 安装向导只出现一次，装完再访问首页不再跳 `/setup`。
 - 能登录、能发帖、能上传图片。
+
+---
+
+## 第 13 步：安装电台搜歌接口（可选）
+
+三楼电台搜歌默认走 iTunes 预览。要走网易云曲库，在宝塔终端执行：
+
+```bash
+# 只写本机地址
+cd /www/wwwroot/你的域名
+bash 安装电台接口.sh
+
+# 给电台接口一个专属域名（域名要已解析到本机）
+cd /www/wwwroot/你的域名
+bash 安装电台接口.sh music.cxovo.cn
+```
+
+脚本会：
+
+1. 有 Docker 就拉 `moefurina/ncm-api`；没有就用 Node 22 + PM2 安装 [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)。
+2. 给了域名就自动写 Nginx 反代、申请 Let's Encrypt 证书，并把 `YY_API` 写成 `https://music.cxovo.cn`。
+3. 没给域名就把 `YY_API=http://127.0.0.1:3000` 写入 `backend/.env`，并同步站务后台「电台接口」。
+4. 重启 `qinghu-api`。
+
+接口说明：https://neteasecloudmusicapienhanced.js.org/ 。脚本会自己写 `YY_API`，一般不用手填。
+
+### 为什么有的歌只有 30 秒
+
+自建接口能搜到歌，但 `/song/url/v1` 要拿到完整音源，多数情况需要网易云登录 Cookie。没配 Cookie 时，青葫会退回 iTunes 预览源，所以只有约 30 秒。
+
+要听整首，打开站务后台总览 →「三楼电台」，把登录 Cookie 填进去：
+
+1. 浏览器登录 https://music.163.com 。
+2. 按 F12 打开开发者工具，刷新页面，在任意请求的请求头里复制整段 Cookie（或只取 `MUSIC_U=...` 这一段）。
+3. 粘贴到「网易云 Cookie」输入框，保存。
+
+保存后后端会把 `YY_COOKIE` 写进 `backend/.env`，并同步到数据库。会员/独家版权曲即使登录也可能拿不到地址，属正常现象。
+
+本机端口不用放行 3000；配了域名要放行 80 和 443。本机自检：
+
+```bash
+# 本机检查电台接口
+curl "http://127.0.0.1:3000/search?keywords=海阔天空&limit=1"
+```
+
+能看到带 `"code"` 的 JSON 即可。带域名时再自检一次：
+
+```bash
+# 专属域名自检
+curl "https://music.cxovo.cn/search?keywords=海阔天空&limit=1"
+```
+
+然后打开站务后台总览，确认「电台接口」已显示脚本写入的地址。
 
 ---
 
@@ -376,9 +432,9 @@ pm2 start qinghu-api
 - 云服务器安全组是否放行 80。
 - 先用 `http://你的域名` 能打开页面，再申请证书。
 
-### 7. 上传图片失败
+### 7. 上传图片或视频失败
 
-确认 Nginx 里有 `client_max_body_size 16m;`，并且 `backend/uploads` 目录存在、可写。一键安装会自动创建这个目录。
+确认 Nginx 里有 `client_max_body_size 100m;` 和 `client_body_timeout 300s;`，并且 `backend/uploads` 目录存在、可写。一键安装会自动创建这个目录。视频默认单个不超过 80MB；若在 `backend/.env` 调高了 `VIDEO_MAX_MB`，Nginx 的上传上限也要同步调高。
 
 ### 8. 端口 3001 要不要在宝塔安全里放行？
 

@@ -2,7 +2,7 @@
 
 玩机与游戏互助社区论坛，对标葫芦侠三楼的社区玩法：版块、楼层回复、签到葫芦、等级头衔、关注流、排行与兑换。
 
-安装包：`qinghu-sanlou-1.0.0.zip`。线上环境推荐 **Ubuntu 22.04 LTS 64 位** + 宝塔 + Node 22。更细的点选说明见 `INSTALL-BAOTA.md`。
+安装包：`qinghu-sanlou-1.0.32.zip`。线上环境推荐 **Ubuntu 22.04 LTS 64 位** + 宝塔 + Node 22。更细的点选说明见 `INSTALL-BAOTA.md`。本版在 1.0.31 基础上修复全新安装未创建默认版块骨架的问题：执行安装向导后会直接生成 14 个默认版块，并带上版规。演示数据重播脚本继续保留：安装包仍按空库交付，本地或演示站需要样例内容时执行 `node backend/reseed-demo.js`，脚本会先备份数据库，再重建演示账号与帖子，保留站长和已有真实内容。付费帖子、帖子红包、视频上传播放、列表查询优化和手机端修复继续保留。
 
 ## 本地启动
 
@@ -20,6 +20,53 @@ bash start.sh
 ```
 
 前端默认 http://localhost:5173 ，接口走 `/api` 反向代理到 3001。
+
+## 演示数据
+
+安装包默认是空库，不创建演示账号。需要本地预览或演示站样例内容时，停掉后端再执行：
+
+```bash
+cd backend
+node reseed-demo.js
+```
+
+脚本会先把数据库备份到 `backend/data/backups/`，然后删除旧的演示账号和演示帖，重新生成一批带当前时间的演示内容。站长账号、真实版块和真实帖子会保留。重新启动后端后生效。
+
+## 帖子红包
+
+在「发到三楼」选择「红包」，填写总额、个数和祝福语。发布时从发帖人葫芦余额扣除总额，楼友可在帖子详情领取，每人限领一次，不能领自己的红包。红包 24 小时内领完即止，到期未领完的葫芦自动退回发帖人。删除帖子进入回收站不影响已领记录，彻底删除或删除版块时剩余金额退回。
+
+## 付费帖子
+
+在「发到三楼」选择「付费」，正文作为免费试读，另外填写解锁价格和付费内容。读者在帖子详情支付葫芦后立即解锁，每人只需购买一次；楼主和版主可以直接查看。付款直接转入发帖人余额，购买记录和到账通知自动生成。付费内容不会出现在信息流摘要、搜索和分享卡片中。
+
+## 去水印
+
+登录后从消息页顶部「去水印」进入 `/parse`，粘贴抖音、快手等分享内容。成功按后台「每次解析扣葫芦」扣费（默认 1，可设 0）。站长在后台「去水印」登记远程接口（地址带 `url=`，slug 填平台或 `*`）；未配接口时抖音、快手走内置适配。下载走登录态代理。
+
+## 三楼电台
+
+搜歌优先走自建 [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced)。接口说明见 https://neteasecloudmusicapienhanced.js.org/ ，填本机根地址，例如 `http://127.0.0.1:3000`。
+
+网站根目录执行（能直接看到 `backend` 和 `frontend`）：
+
+```bash
+# 只写本机地址，最快
+cd /www/wwwroot/你的域名
+bash 安装电台接口.sh
+
+# 给电台接口一个专属域名，脚本自动反代并申请证书
+cd /www/wwwroot/你的域名
+bash 安装电台接口.sh music.cxovo.cn
+```
+
+不带域名时，脚本把 `YY_API` 写成 `http://127.0.0.1:3000`。带域名时，脚本自动写 Nginx 反代、用 acme.sh 申请 Let's Encrypt 证书，再把 `YY_API` 写成 `https://music.cxovo.cn`。域名要已经解析到本机公网 IP。不带参数运行时也会提示输入域名，直接回车即跳过。
+
+脚本有 Docker 就拉 `moefurina/ncm-api`，否则用 Node 22 + PM2。装好后写入 `backend/.env` 的 `YY_API`，并同步站务后台。留空 `YY_API` 则只用 iTunes 预览源。本机端口不用放行；配了域名要放行 80 和 443。
+
+自建接口能搜到歌，但只有约 30 秒时，是网易云没给完整音源，青葫退回了 iTunes 预览。到站务后台总览 →「三楼电台」填网易云登录 Cookie（`MUSIC_U=...`，浏览器登录 music.163.com 后从开发者工具请求头复制），保存后即可听整首。会员/独家版权曲仍可能没有地址。
+
+消息页小应用「赤云」是完整网易云风格播放器。解压覆盖后执行 `bash 一键安装.sh` 即可，接口走已有的 `/api` 反代（`/api/chiyun`），沿用 `YY_API` / `YY_COOKIE`。
 
 ## 全新服务器安装
 
@@ -70,7 +117,7 @@ apt-get install -y build-essential python3
 ### 4. 添加网站并上传程序
 
 1. 网站 → 添加站点：域名填你的域名；PHP 选 **纯静态**；数据库、FTP 都不创建。
-2. 文件 → 进入 `/www/wwwroot/你的域名/`，上传 `qinghu-sanlou-1.0.0.zip`，右键解压。
+2. 文件 → 进入 `/www/wwwroot/你的域名/`，上传 `qinghu-sanlou-1.0.32.zip`，右键解压。
 3. 若多出一层 `qinghu-sanlou` 文件夹，把里面的 `backend`、`frontend`、`一键安装.sh` 等全部剪切到 `/www/wwwroot/你的域名/`。这个目录必须直接能看到 `backend` 和 `frontend`。
 4. 网站设置 → 网站目录改成：
 
@@ -115,7 +162,8 @@ server
     server_name app.cxovo.cn;
     index index.html index.php index.htm default.php default.htm default.html;
     root /www/wwwroot/app.cxovo.cn/frontend/dist;
-    client_max_body_size 16m;
+    client_max_body_size 100m;
+    client_body_timeout 300s;
 
     #CERT-APPLY-CHECK--START
     include /www/server/panel/vhost/nginx/well-known/app.cxovo.cn.conf;
@@ -158,7 +206,8 @@ server
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
 
     location ^~ /uploads/ {
@@ -212,8 +261,8 @@ server
 
 这个 zip 根目录就是 `backend`、`frontend`，解压后直接盖住网站目录。
 
-1. 宝塔文件进入 `/www/wwwroot/你的域名/`，这里要直接能看到 `backend` 和 `frontend`。
-2. 上传 `qinghu-sanlou-1.0.0.zip`，右键解压，选覆盖已有文件。
+1. 宝塔文件进入 `/www/wwwroot/你的域名/`，这里要直接能看到 `backend` 和 `frontend`。不要解压到 `frontend/dist`。
+2. 上传 `qinghu-sanlou-1.0.32.zip`，右键解压，选覆盖已有文件。解完执行：`grep 'const RELEASE' backend/server.js`，必须看到 `1.0.32`。
 3. 打开网站设置 → 配置文件，把 `location /uploads/` 改成下面这段后保存：
 
 ```nginx
@@ -234,6 +283,10 @@ bash 一键安装.sh
 ```
 
 `backend/data`（帖子账号）和 `backend/uploads`（已传图片）会留着。
+
+覆盖只换文件，PM2 内存里还是旧代码。必须跑完 `bash 一键安装.sh`。打开 `https://你的域名/api/health`，JSON 里要有 `"release":"1.0.32"`。没有这行：号店、装扮、推荐、会员等新接口会全部显示「接口不存在」。
+
+重要：如果之前用 `bash start.sh` 或手动 `node server.js` 起过后端，会在 3001 端口留下一个不归 PM2 管的旧进程。之后无论怎么覆盖、怎么重启 PM2，都还是旧代码在应答。新的 `一键安装.sh` 会先自动结束占用 3001 的旧进程再启动，执行完看末尾是否打印「后端 1.0.32 已生效」。
 
 要做成空站：用站长登录 → 站务后台 → 总览 → 重置社区，确认词填 `全新社区`。版块、帖子、用户、幽灵版主都会清掉，只留下新站长账号。
 

@@ -50,7 +50,7 @@ const ARTS = {
       <ellipse cx="32" cy="16" rx="5" ry="6.5" fill="#fff" />
       <circle cx="19.5" cy="24.5" r="2.1" fill="#1d4ed8" />
       <circle cx="28.5" cy="24.5" r="2.1" fill="#1d4ed8" />
-      <path fill="#1d4ed8" d="M20.5 31c2 1.8 5 1.8 7 0" stroke="#1d4ed8" strokeWidth="1.6" fill="none" />
+      <path d="M20.5 31c2 1.8 5 1.8 7 0" stroke="#1d4ed8" strokeWidth="1.6" fill="none" />
     </Art>
   ),
   aiplanet: (

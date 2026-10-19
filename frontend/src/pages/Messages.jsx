@@ -2,8 +2,10 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
-import { ChatIco, HeartIco, PlusIco, StarIco } from "../icons.jsx";
+import { ChatIco, HeartIco, StarIco } from "../icons.jsx";
 import Chat from "./Chat.jsx";
+import { RowSkeleton } from "../components/Skeleton.jsx";
+import { UserName } from "../components/Dress.jsx";
 
 function msgTime(iso) {
   if (!iso) return "";
@@ -26,6 +28,8 @@ function inboxLineOf(n) {
   if (n.type === "like") return `${who} 赞了你的帖子`;
   if (n.type === "collect") return `${who} 收藏了你的帖子`;
   if (n.type === "follow") return `${who} 关注了你`;
+  if (n.type === "tip") return `${who} ${n.content || "打赏了你"}`;
+  if (n.type === "mention") return `${who} 艾特了你`;
   return `${who} ${n.content || ""}`;
 }
 
@@ -34,11 +38,21 @@ function actText(n) {
   if (n.type === "collect") return "收藏了你的帖子";
   if (n.type === "comment") return n.content === "回复了你的评论" ? "回复了你的评论" : "回复了你的帖子";
   if (n.type === "follow") return "关注了你";
+  if (n.type === "tip") return n.content || "打赏了你";
+  if (n.type === "mention") return n.content || "艾特了你";
   return n.content || "互动";
 }
 
+const FALLBACK_APPS = [
+  { id: "parse", name: "去水印", path: "/parse", color: "#fb7185", mark: "水" },
+  { id: "music", name: "电台", path: "/music", color: "#34d399", mark: "台" },
+  { id: "chiyun", name: "赤云", path: "/chiyun", color: "#e11d48", mark: "云" },
+  { id: "task", name: "任务", path: "/discover", color: "#a78bfa", mark: "任" },
+  { id: "soft", name: "软件", path: "/soft", color: "#60a5fa", mark: "软" }
+];
+
 export default function Messages() {
-  const { user, toast } = useAuth();
+  const { user, toast, refreshUnread, bumpUnread } = useAuth();
   const nav = useNavigate();
   const { uid } = useParams();
   const peerId = uid ? Number(uid) : 0;
@@ -48,30 +62,39 @@ export default function Messages() {
   const filter = sp.get("filter") || "all";
   const [list, setList] = useState([]);
   const [sent, setSent] = useState([]);
-  const [contacts, setContacts] = useState([]);
   const [dms, setDms] = useState([]);
   const [menu, setMenu] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [apps, setApps] = useState(FALLBACK_APPS);
 
   useEffect(() => {
     if (!user) return nav("/login");
+    setReady(false);
+    api("/api/mini-apps").then((d) => {
+      if (d.apps && d.apps.length) setApps(d.apps);
+    }).catch(() => {});
     api("/api/notifications")
-      .then((d) => setList(d.notifications || []))
+      .then(async (d) => {
+        const notes = d.notifications || [];
+        setList(notes);
+        if (inbox && notes.some((n) => !n.isRead)) {
+          await api("/api/notifications/read", { method: "POST" });
+          setList(notes.map((n) => ({ ...n, isRead: true })));
+          refreshUnread();
+        }
+      })
       .catch((e) => toast(e.message));
     api("/api/dms")
-      .then((d) => setDms(d.conversations || []))
-      .catch(() => setDms([]));
+      .then((d) => {
+        const rows = d.conversations || [];
+        setDms(rows.map((c) => (peerId && c.user && c.user.id === peerId ? { ...c, unread: 0 } : c)));
+      })
+      .catch(() => setDms([]))
+      .finally(() => setReady(true));
     api(`/api/users/${user.id}/replies`)
       .then((d) => setSent(d.replies || []))
       .catch(() => setSent([]));
-    Promise.all([
-      api(`/api/users/${user.id}/following`).catch(() => ({ users: [] })),
-      api("/api/rankings").catch(() => ({ harvest: [] }))
-    ]).then(([f, r]) => {
-      const follow = f.users || [];
-      const extra = (r.harvest || []).filter((u) => u.id !== user.id && !follow.some((x) => x.id === u.id));
-      setContacts([...follow, ...extra].slice(0, 12));
-    });
-  }, [user, peerId]);
+  }, [user, peerId, inbox]);
 
   function goInbox(extra) {
     const q = new URLSearchParams({ inbox: "1", ...(extra || {}) });
@@ -81,20 +104,35 @@ export default function Messages() {
   async function readAll() {
     await api("/api/notifications/read", { method: "POST" });
     setList(list.map((n) => ({ ...n, isRead: true })));
+    refreshUnread();
+  }
+
+  function openThread(c) {
+    const n = Number(c.unread) || 0;
+    if (n) bumpUnread(-n);
+    setDms((cur) => cur.map((x) => (x.user && x.user.id === c.user.id ? { ...x, unread: 0 } : x)));
+  }
+
+  function onChatRead() {
+    setDms((cur) => cur.map((c) => (c.user && c.user.id === peerId ? { ...c, unread: 0 } : c)));
+    refreshUnread();
   }
 
   if (!user) return null;
 
-  const interact = list.filter((n) => n.type === "like" || n.type === "collect" || n.type === "comment");
+  const interact = list.filter((n) => n.type === "like" || n.type === "collect" || n.type === "comment" || n.type === "tip" || n.type === "mention");
   const follows = list.filter((n) => n.type === "follow");
   const inboxLatest = interact[0];
+  const noteUnread = list.filter((n) => !n.isRead).length;
   const shown = filter === "like"
     ? interact.filter((n) => n.type === "like" || n.type === "collect")
     : filter === "comment"
-      ? interact.filter((n) => n.type === "comment")
+      ? interact.filter((n) => n.type === "comment" || n.type === "mention")
       : interact;
 
-  const listPane = inbox ? (
+  const listPane = !ready ? (
+    <div className="dy-msg"><RowSkeleton /></div>
+  ) : inbox ? (
     <div className="dy-msg">
       <div className="act-tabs">
         <button type="button" className={tab !== "follow" ? "on" : ""} onClick={() => { setMenu((v) => (tab !== "follow" ? !v : false)); goInbox(); }}>
@@ -135,7 +173,7 @@ export default function Messages() {
         )) : <div className="empty">还没有新关注</div>
       ) : filter === "sent" ? (
         sent.length ? sent.map((r) => (
-          <Link className="act-row" key={r.id} to={`/post/${r.postId}`}>
+          <Link className="act-row" key={r.id} to={`/post/${r.postId}?c=${r.id}`}>
             <span className="act-av"><img src={user.avatar} alt="" /></span>
             <div className="grow">
               <b>我</b>
@@ -147,12 +185,12 @@ export default function Messages() {
         <Link
           className={`act-row ${n.isRead ? "" : "unread"}`}
           key={n.id}
-          to={n.postId ? `/post/${n.postId}` : n.from ? `/user/${n.from.id}` : "/me"}
+          to={n.postId ? `/post/${n.postId}${n.commentId ? `?c=${n.commentId}` : ""}` : n.from ? `/user/${n.from.id}` : "/me"}
         >
           <span className="act-av">
             <img src={n.from?.avatar} alt="" />
             <i className={`act-mark ${n.type}`}>
-              {n.type === "collect" ? <StarIco size={11} filled /> : n.type === "comment" ? <ChatIco size={11} filled /> : <HeartIco size={11} filled />}
+              {n.type === "collect" ? <StarIco size={11} filled /> : n.type === "comment" || n.type === "mention" ? <ChatIco size={11} filled /> : <HeartIco size={11} filled />}
             </i>
           </span>
           <div className="grow">
@@ -165,26 +203,21 @@ export default function Messages() {
     </div>
   ) : (
     <div className="dy-msg">
-      <div className="dy-story">
-        <Link className="dy-story-item" to="/discover">
-          <span className="dy-av">
-            <img src={user.avatar} alt="" />
-            <i className="plus"><PlusIco size={12} /></i>
-          </span>
-          <b>加关注</b>
-        </Link>
-        {contacts.map((u, i) => (
-          <Link className="dy-story-item" key={u.id} to={`/user/${u.id}`}>
-            <span className={`dy-av ${i === 0 ? "ring-a" : i === 1 ? "ring-b" : ""}`}>
-              <img src={u.avatar} alt="" />
-              {i < 3 ? <i className="online" /> : null}
-            </span>
-            <b>{u.nickname}</b>
-          </Link>
+      <div className="msg-apps">
+        {apps.map((a) => (
+          /^https?:\/\//i.test(a.path) ? (
+            <a className="msg-app" key={a.id} href={a.path} target="_blank" rel="noreferrer">
+              <i style={{ background: a.color }}>{a.mark}</i><b>{a.name}</b>
+            </a>
+          ) : (
+            <Link className="msg-app" key={a.id} to={a.path}>
+              <i style={{ background: a.color }}>{a.mark}</i><b>{a.name}</b>
+            </Link>
+          )
         ))}
       </div>
 
-      <button type="button" className="dy-inbox" onClick={() => goInbox()}>
+      <button type="button" className="dy-inbox" onClick={() => { if (noteUnread) bumpUnread(-noteUnread); goInbox(); }}>
         <span className="dy-inbox-ico"><ChatIco size={26} filled /></span>
         <div className="grow">
           <span className="dy-name">互动消息</span>
@@ -192,19 +225,20 @@ export default function Messages() {
         </div>
         <div className="dy-meta">
           <span className="dy-time">{inboxLatest ? msgTime(inboxLatest.createdAt) : ""}</span>
+          {noteUnread > 1 ? <i className="dy-badge">{noteUnread > 99 ? "99+" : noteUnread}</i> : noteUnread === 1 ? <i className="dy-badge dot" /> : null}
         </div>
       </button>
 
       {dms.filter((c) => c.user).map((c) => (
-        <Link className={`dy-thread ${c.unread ? "unread" : ""} ${peerId === c.user.id ? "on" : ""}`} key={c.user.id} to={`/messages/chat/${c.user.id}`}>
+        <Link className={`dy-thread ${c.unread ? "unread" : ""} ${peerId === c.user.id ? "on" : ""}`} key={c.user.id} to={`/messages/chat/${c.user.id}`} onClick={() => openThread(c)}>
           <span className="dy-av-wrap">
             <img className="dy-face" src={c.user.avatar} alt="" />
           </span>
           <div className="grow">
             <span className="dy-name">
-              {c.user.nickname}
+              <UserName user={c.user} withLevel={false} />
             </span>
-            <p className="dy-preview">{c.last?.body || (c.last?.images?.length ? "[图片]" : "")}</p>
+            <p className="dy-preview">{c.last?.deleted ? (c.last.mine ? "你撤回了一条消息" : "对方撤回了一条消息") : (c.last?.body || (c.last?.images?.length ? "[图片]" : ""))}</p>
           </div>
           <div className="dy-meta">
             <span className="dy-time">{msgTime(c.last?.createdAt)}</span>
@@ -219,7 +253,7 @@ export default function Messages() {
   return (
     <div className={`layout single msg-shell ${peerId ? "split" : ""}`}>
       <div className={`msg-pane ${peerId ? "desk-keep" : ""}`}>{listPane}</div>
-      {peerId ? <Chat peerId={peerId} /> : <div className="msg-placeholder desk-only">选择一个对话开始聊天</div>}
+      {peerId ? <Chat peerId={peerId} onRead={onChatRead} /> : <div className="msg-placeholder desk-only">选择一个对话开始聊天</div>}
     </div>
   );
 }

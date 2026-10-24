@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { PostRow } from "../components/PostCard.jsx";
+import { BackTop } from "../components/ListScroll.jsx";
 import BoardIcon from "../components/BoardIcon.jsx";
 import { UserAvatar, UserName } from "../components/Dress.jsx";
 
@@ -71,6 +72,7 @@ export default function Search() {
           </Link>
         ))}
       </div>
+      <BackTop />
     </div>
   );
 }

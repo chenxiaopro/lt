@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, formatHeat } from "../api.js";
 import { useAuth } from "../context.jsx";
 import { PostRow } from "../components/PostCard.jsx";
+import { BackTop } from "../components/ListScroll.jsx";
 import { BackIco } from "../icons.jsx";
 import { HonorChips, LevelMark, MedalRow, MedalWall, UserAvatar, UserName, cardVars } from "../components/Dress.jsx";
 import Lightbox from "../components/Lightbox.jsx";
@@ -185,6 +186,7 @@ export default function User() {
           ) : null}
           <Lightbox images={album} index={shot} onClose={() => setShot(null)} onIndex={setShot} />
         </div>
+        <BackTop />
       </div>
     );
   }
@@ -294,6 +296,7 @@ export default function User() {
         </section>
         <Lightbox images={album} index={shot} onClose={() => setShot(null)} onIndex={setShot} />
       </div>
+      <BackTop />
     </div>
   );
 }

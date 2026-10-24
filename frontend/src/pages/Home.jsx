@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
-import PostCard, { MomentCard, PinRow, TitleBadges, TitleText } from "../components/PostCard.jsx";
+import PostCard, { MomentCard, PinRow, PostRowDense, TitleBadges, TitleText } from "../components/PostCard.jsx";
+import { BackTop, useInfiniteScroll } from "../components/ListScroll.jsx";
 import Side from "./Side.jsx";
 import { FeedSkeleton } from "../components/Skeleton.jsx";
 
@@ -64,6 +65,15 @@ export default function Home() {
   const [loading, setLoading] = useState(() => !feedCache.has(firstKey));
   const [hasMore, setHasMore] = useState(() => !!(feedCache.get(firstKey) || {}).hasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [listMode, setListMode] = useState(() => {
+    try {
+      return localStorage.getItem("qh_home_list_mode") === "dense" ? "dense" : "card";
+    } catch {
+      return "card";
+    }
+  });
+
+  const listSentinel = useInfiniteScroll({ hasMore, loadingMore, ready: !loading && !isMoment, onLoadMore: loadMore });
 
   useEffect(() => {
     if (homeCache) return;
@@ -133,8 +143,19 @@ export default function Home() {
     }
   }
 
-  async function likeMoment(post) {
-    if (!user) return nav("/login");
+  function toggleListMode() {
+    setListMode((m) => {
+      const next = m === "card" ? "dense" : "card";
+      try {
+        localStorage.setItem("qh_home_list_mode", next);
+      } catch {
+        /* storage unavailable */
+      }
+      return next;
+    });
+  }
+
+  async function likeMoment(post) {    if (!user) return nav("/login");
     try {
       const d = await api(`/api/posts/${post.id}/like`, { method: "POST" });
       setPosts((list) => {
@@ -165,6 +186,14 @@ export default function Home() {
                 {label}
               </button>
             ))}
+            <button
+              type="button"
+              className={`chip mode-chip ${listMode === "dense" ? "on" : ""}`}
+              aria-label="切换列表模式"
+              onClick={toggleListMode}
+            >
+              {listMode === "card" ? "简洁" : "卡片"}
+            </button>
           </div>
         )}
         {tab === "follow" && !user && !isMoment ? (
@@ -185,17 +214,21 @@ export default function Home() {
           ) : (
             <>
               {pins.map((p) => <PinRow key={`pin-${p.id}`} post={p} showBoardPin={false} />)}
-              {feed.map((p) => <PostCard key={p.id} post={p} />)}
+              {feed.map((p) => (listMode === "dense" ? <PostRowDense key={p.id} post={p} /> : <PostCard key={p.id} post={p} />))}
             </>
           )
         ) : (
           <div className="empty soft">{tab === "follow" ? "还没有关注内容，去圈子加点版块" : "这层楼还安静"}</div>
         )}
         {!loading && posts.length && hasMore ? (
-          <button type="button" className="btn btn-line touch-act" onClick={loadMore}>{loadingMore ? "加载中" : "加载更多"}</button>
+          <>
+            <div ref={listSentinel} className="load-sentinel" aria-hidden="true" />
+            <button type="button" className="btn btn-line touch-act" onClick={loadMore}>{loadingMore ? "加载中" : "加载更多"}</button>
+          </>
         ) : null}
       </div>
       {isMoment ? null : <Side home={home} />}
+      <BackTop />
     </div>
   );
 }

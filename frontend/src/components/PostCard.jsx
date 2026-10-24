@@ -141,6 +141,32 @@ function PinRowInner({ post, showBoardPin }) {
   );
 }
 
+export function PostRowDense({ post }) {
+  const img = (post.images || [])[0];
+  const fresh = Date.now() - new Date(post.createdAt).getTime() < 36e5;
+  const body = String(post.content || "").trim();
+  const fallback = (post.images || []).length ? "[图片]" : (post.videos || []).length ? "[视频]" : "";
+  const excerpt = body ? (body.length > 80 ? `${body.slice(0, 80)}…` : body) : fallback;
+  return (
+    <Link className="hx-row" to={`/post/${post.id}`}>
+      <div className="hx-row-body">
+        <h3 className="post-title">
+          <TitleBadges post={post} />
+          {post.tipCount > 0 ? <span className="badge-plus">+{post.tipCount}</span> : null}
+          {fresh ? <span className="badge-new">新</span> : null}
+          <TitleText post={post} />
+        </h3>
+        {excerpt ? <div className="ex dense-ex">{excerpt}</div> : null}
+        <div className="hx-row-meta">
+          <span>{post.author ? <UserName user={post.author} withLevel={false} /> : "葫芦丝"}</span>
+          <span>{timeAgo(post.createdAt)} · {post.viewCount}看 · {post.commentCount}评</span>
+        </div>
+      </div>
+      {img ? <img className="hx-thumb" src={img} alt="" loading="lazy" decoding="async" /> : null}
+    </Link>
+  );
+}
+
 export function PinRow({ post, showBoardPin = true, pickable, picked, onPick }) {
   if (pickable) {
     return (

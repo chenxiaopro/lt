@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
 import { PinRow, PostRow } from "../components/PostCard.jsx";
+import { BackTop, useInfiniteScroll } from "../components/ListScroll.jsx";
 import { formatHeat } from "../api.js";
 import BoardIcon from "../components/BoardIcon.jsx";
 import { FeedSkeleton } from "../components/Skeleton.jsx";
@@ -21,6 +22,7 @@ export default function Board() {
   const [picked, setPicked] = useState([]);
   const [busy, setBusy] = useState(false);
   const [boardOpts, setBoardOpts] = useState([]);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   async function load({ more } = {}) {
     const b = await api(`/api/boards/${id}`);
@@ -37,6 +39,20 @@ export default function Board() {
     setPageOff(offset + 30);
     setHasMore(!!p.hasMore);
   }
+
+  async function loadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      await load({ more: true });
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  const listSentinel = useInfiniteScroll({ hasMore, loadingMore, ready: !!board, onLoadMore: loadMore });
 
   useEffect(() => {
     setPageOff(0);
@@ -182,9 +198,13 @@ export default function Board() {
         {feed.map((p) => <PostRow key={p.id} post={p} pickable={manage} picked={picked.includes(p.id)} onPick={togglePick} />)}
         {feed.length === 0 && pins.length === 0 ? <div className="empty">{tab === "essence" ? "这一层还没有精华帖" : "这层楼还没人说话"}</div> : null}
         {hasMore ? (
-          <button type="button" className="btn btn-line touch-act" onClick={() => load({ more: true }).catch((e) => toast(e.message))}>加载更多</button>
+          <>
+            <div ref={listSentinel} className="load-sentinel" aria-hidden="true" />
+            <button type="button" className="btn btn-line touch-act" onClick={loadMore}>{loadingMore ? "加载中" : "加载更多"}</button>
+          </>
         ) : null}
       </div>
+      <BackTop />
     </div>
   );
 }

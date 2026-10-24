@@ -153,7 +153,7 @@ loadDotEnv();
 
 const SECRET = process.env.JWT_SECRET || "qinghu-sanlou-dev-secret";
 const PORT = Number(process.env.PORT || 3001);
-const RELEASE = "1.0.32";
+const RELEASE = "1.0.33";
 const IMAGE_MAX_MB = 6;
 const VIDEO_MAX_MB = Math.max(1, Math.min(200, Number(process.env.VIDEO_MAX_MB) || 80));
 const uploadDir = path.join(__dirname, "uploads");

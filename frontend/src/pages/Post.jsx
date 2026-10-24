@@ -1203,6 +1203,22 @@ export default function Post() {
             <p className="hint">QQ / 微信可用下方 XML 卡片</p>
             <textarea className="field" rows={6} readOnly value={shareXml()} />
             <div className="tip-actions">
+              {typeof navigator.share === "function" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator
+                      .share({
+                        title: post.title || "青葫三楼",
+                        text: String(post.content || "").replace(/\s+/g, " ").slice(0, 80),
+                        url: shareUrl()
+                      })
+                      .catch(() => {});
+                  }}
+                >
+                  系统分享
+                </button>
+              ) : null}
               <button type="button" onClick={() => { copyText(shareUrl()); }}>复制链接</button>
               <button type="button" onClick={() => { copyText(shareXml()); }}>复制 XML</button>
               <a className="btn" href={`https://connect.qq.com/widget/shareqq/index.html?url=${encodeURIComponent(shareUrl())}&title=${encodeURIComponent(post.title || "")}&summary=${encodeURIComponent(String(post.content || "").slice(0, 80))}&pics=${encodeURIComponent(absUrl((post.images && post.images[0]) || ""))}`} target="_blank" rel="noreferrer">QQ</a>

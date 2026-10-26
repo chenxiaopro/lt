@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { memo, useState } from "react";
 import { Link } from "react-router-dom";
 import { timeAgo } from "../api.js";
 
@@ -114,7 +114,7 @@ function PostRowInner({ post, fresh, img }) {
   );
 }
 
-export function PostRow({ post, pickable, picked, onPick }) {
+export const PostRow = memo(function PostRow({ post, pickable, picked, onPick }) {
   const img = (post.images || [])[0];
   const fresh = Date.now() - new Date(post.createdAt).getTime() < 36e5;
   if (pickable) {
@@ -130,7 +130,7 @@ export function PostRow({ post, pickable, picked, onPick }) {
       <PostRowInner post={post} fresh={fresh} img={img} />
     </Link>
   );
-}
+})
 
 function PinRowInner({ post, showBoardPin }) {
   return (
@@ -141,7 +141,7 @@ function PinRowInner({ post, showBoardPin }) {
   );
 }
 
-export function PostRowDense({ post }) {
+export const PostRowDense = memo(function PostRowDense({ post }) {
   const img = (post.images || [])[0];
   const fresh = Date.now() - new Date(post.createdAt).getTime() < 36e5;
   const body = String(post.content || "").trim();
@@ -165,9 +165,9 @@ export function PostRowDense({ post }) {
       {img ? <img className="hx-thumb" src={img} alt="" loading="lazy" decoding="async" /> : null}
     </Link>
   );
-}
+})
 
-export function PinRow({ post, showBoardPin = true, pickable, picked, onPick }) {
+export const PinRow = memo(function PinRow({ post, showBoardPin = true, pickable, picked, onPick }) {
   if (pickable) {
     return (
       <div className={`hx-pin pickable${picked ? " picked" : ""}`} onClick={() => onPick && onPick(post.id)}>
@@ -181,7 +181,7 @@ export function PinRow({ post, showBoardPin = true, pickable, picked, onPick }) 
       <PinRowInner post={post} showBoardPin={showBoardPin} />
     </Link>
   );
-}
+})
 
 export function MediaCard({ post, tall }) {
   const img = (post.images || [])[0] || post.author?.avatar;
@@ -211,7 +211,7 @@ function momentShowsTitle(post) {
   return true;
 }
 
-export function MomentCard({ post, onLike }) {
+export const MomentCard = memo(function MomentCard({ post, onLike }) {
   const imgs = (post.images || []).slice(0, 9);
   const vids = (post.videos || []).slice(0, 3);
   const n = imgs.length;
@@ -258,9 +258,9 @@ export function MomentCard({ post, onLike }) {
       <Lightbox images={imgs} index={shot} onClose={() => setShot(-1)} onIndex={setShot} />
     </article>
   );
-}
+})
 
-export default function PostCard({ post, variant = "feed" }) {
+export default memo(function PostCard({ post, variant = "feed" }) {
   if (variant === "row") return <PostRow post={post} />;
   const n = Math.min(9, (post.images || []).length);
   const vid = (post.videos || [])[0];
@@ -317,4 +317,4 @@ export default function PostCard({ post, variant = "feed" }) {
       <Lightbox images={post.images || []} index={shot} onClose={() => setShot(-1)} onIndex={setShot} />
     </article>
   );
-}
+})

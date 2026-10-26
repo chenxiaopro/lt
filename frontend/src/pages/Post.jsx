@@ -789,6 +789,13 @@ export default function Post() {
             ) : (
               <div className="paid-lock">
                 <p>支付 {post.paid.price} 葫芦后查看完整内容</p>
+                {post.paid.hiddenImages || post.paid.hiddenVideos ? (
+                  <p className="hint">
+                    含 {post.paid.hiddenImages || 0} 张图片
+                    {post.paid.hiddenImages && post.paid.hiddenVideos ? "、" : ""}
+                    {post.paid.hiddenVideos || 0} 个视频，解锁后查看
+                  </p>
+                ) : null}
                 <button type="button" className="btn btn-fill touch-act paid-btn" disabled={paidBusy} onClick={unlockPaid}>
                   {paidBusy ? "解锁中..." : user ? `支付 ${post.paid.price} 葫芦解锁` : "登录后解锁"}
                 </button>

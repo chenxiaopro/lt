@@ -153,7 +153,7 @@ loadDotEnv();
 
 const SECRET = process.env.JWT_SECRET || "qinghu-sanlou-dev-secret";
 const PORT = Number(process.env.PORT || 3001);
-const RELEASE = "1.0.33";
+const RELEASE = "1.0.34";
 const IMAGE_MAX_MB = 6;
 const VIDEO_MAX_MB = Math.max(1, Math.min(200, Number(process.env.VIDEO_MAX_MB) || 80));
 const uploadDir = path.join(__dirname, "uploads");
@@ -3425,6 +3425,8 @@ if (fs.existsSync(publicDir)) {
 
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`青葫三楼 API 已启动: http://localhost:${PORT}  release=${RELEASE}`);
+  fetch(`http://127.0.0.1:${PORT}/api/home`).catch(() => {});
+  fetch(`http://127.0.0.1:${PORT}/api/config`).catch(() => {});
 });
 server.on("error", (err) => {
   if (err && err.code === "EADDRINUSE") {

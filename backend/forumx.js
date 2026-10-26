@@ -696,6 +696,18 @@ function withThread(db, packed, row, me, lite) {
     packed.redpacket = redpacketView(db, row, me, !!lite);
   } else if (kind === "paid") {
     packed.paid = paidView(db, row, me, packed, !!lite);
+    if (!packed.paid.canView) {
+      const imgs = Array.isArray(packed.images) ? packed.images : [];
+      const vids = Array.isArray(packed.videos) ? packed.videos : [];
+      if (imgs.length) {
+        packed.paid.hiddenImages = imgs.length;
+        packed.images = [];
+      }
+      if (vids.length) {
+        packed.paid.hiddenVideos = vids.length;
+        packed.videos = [];
+      }
+    }
   }
   attachHide(db, packed, row, me);
   return packed;

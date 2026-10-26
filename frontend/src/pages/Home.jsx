@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../context.jsx";
@@ -154,8 +154,8 @@ export default function Home() {
       return next;
     });
   }
-
-  async function likeMoment(post) {    if (!user) return nav("/login");
+  const likeMoment = useCallback(async (post) => {
+    if (!user) return nav("/login");
     try {
       const d = await api(`/api/posts/${post.id}/like`, { method: "POST" });
       setPosts((list) => {
@@ -168,7 +168,7 @@ export default function Home() {
     } catch {
       toast("点赞失败");
     }
-  }
+  }, [user, isMoment, tab, nav, toast]);
 
   return (
     <div className={`layout ${isMoment ? "single" : ""}`}>

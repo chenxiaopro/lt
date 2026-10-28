@@ -4,13 +4,13 @@ import { api, formatHeat } from "../api.js";
 import { useAuth } from "../context.jsx";
 import BoardIcon from "../components/BoardIcon.jsx";
 
-const CATS = ["角色扮演", "竞速射击", "策略经营", "端游", "生活综合", "玩机一族", "其他游戏", "泳池"];
+const CATS_PRESET = ["角色扮演", "竞速射击", "策略经营", "端游", "生活综合", "玩机一族", "其他游戏", "泳池"];
 
 export default function AddBoards() {
   const { user, toast } = useAuth();
   const nav = useNavigate();
   const [boards, setBoards] = useState([]);
-  const [cat, setCat] = useState("角色扮演");
+  const [cat, setCat] = useState(CATS_PRESET[0]);
   const [busy, setBusy] = useState(null);
 
   async function load() {
@@ -38,13 +38,17 @@ export default function AddBoards() {
     }
   }
 
+  const cats = [...CATS_PRESET];
+  for (const b of boards) {
+    if (b.category && !cats.includes(b.category)) cats.push(b.category);
+  }
   const list = boards.filter((b) => !b.system && b.category === cat);
 
   return (
     <div className="layout single">
       <div className="hx-add">
         <div className="hx-cats">
-          {CATS.map((c) => (
+          {cats.map((c) => (
             <button key={c} type="button" className={`hx-cat ${cat === c ? "on" : ""}`} onClick={() => setCat(c)}>
               {c}
             </button>

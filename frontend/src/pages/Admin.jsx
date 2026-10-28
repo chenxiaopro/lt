@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api.js";
+import { api, formatHeat } from "../api.js";
 import { useAuth } from "../context.jsx";
 import { DressPreview, UserAvatar } from "../components/Dress.jsx";
 
@@ -25,6 +25,7 @@ export default function Admin() {
   const [banHours, setBanHours] = useState(168);
   const [muteHours, setMuteHours] = useState(24);
   const [boards, setBoards] = useState([]);
+  const boardCats = [...new Set(boards.map((b) => b.category).filter(Boolean))];
   const [hidden, setHidden] = useState([]);
   const [trash, setTrash] = useState([]);
   const [picked, setPicked] = useState(null);
@@ -45,7 +46,7 @@ export default function Admin() {
   const [honorDays, setHonorDays] = useState(0);
   const [grantKey, setGrantKey] = useState("");
   const [grantSlug, setGrantSlug] = useState("");
-  const [boardForm, setBoardForm] = useState({ name: "", slug: "", icon: "", color: "#FF6A00", desc: "", category: "生活综合", types: "讨论,求助,分享", announcement: "" });
+  const [boardForm, setBoardForm] = useState({ name: "", slug: "", icon: "", color: "#FF6A00", desc: "", category: "生活综合", types: "讨论,求助,分享", announcement: "", sort: 0, system: false });
   const [editBoardId, setEditBoardId] = useState(null);
   const [newMedal, setNewMedal] = useState({ name: "", icon: "", color: "#ff2442", desc: "" });
   const [editing, setEditing] = useState(null);
@@ -537,19 +538,31 @@ export default function Admin() {
 
   async function saveBoard() {
     if (!boardForm.name.trim()) return toast("请填写版块名称");
+    const payload = { ...boardForm, sort: Math.max(0, Math.floor(Number(boardForm.sort) || 0)), system: boardForm.system ? 1 : 0 };
     try {
       if (editBoardId) {
-        await api(`/api/admin/boards/${editBoardId}`, { method: "PUT", body: boardForm });
+        await api(`/api/admin/boards/${editBoardId}`, { method: "PUT", body: payload });
         toast("版块已更新");
       } else {
-        await api("/api/admin/boards", { method: "POST", body: boardForm });
+        await api("/api/admin/boards", { method: "POST", body: payload });
         toast("版块已创建");
       }
       setEditBoardId(null);
-      setBoardForm({ name: "", slug: "", icon: "", color: "#FF6A00", desc: "", category: "生活综合", types: "讨论,求助,分享", announcement: "" });
+      setBoardForm({ name: "", slug: "", icon: "", color: "#FF6A00", desc: "", category: "生活综合", types: "讨论,求助,分享", announcement: "", sort: 0, system: false });
       const b = await api("/api/admin/boards");
       setBoards(b.boards || []);
       load().catch(() => {});
+    } catch (e) {
+      toast(e.message);
+    }
+  }
+
+  async function toggleBoardSystem(b) {
+    try {
+      await api(`/api/admin/boards/${b.id}`, { method: "PUT", body: { system: b.system ? 0 : 1 } });
+      const d = await api("/api/admin/boards");
+      setBoards(d.boards || []);
+      toast(b.system ? "已取消系统推荐" : "已设为系统推荐");
     } catch (e) {
       toast(e.message);
     }
@@ -565,7 +578,9 @@ export default function Admin() {
       desc: b.desc || "",
       category: b.category || "生活综合",
       types: (b.threadTypes || []).map((t) => t.name).join(","),
-      announcement: b.announcement || ""
+      announcement: b.announcement || "",
+      sort: Number(b.sort) || 0,
+      system: !!b.system
     });
   }
 
@@ -974,15 +989,25 @@ export default function Admin() {
               </div>
               <div className="admin-appoint-row">
                 <input className="field" value={boardForm.icon} onChange={(e) => setBoardForm((f) => ({ ...f, icon: e.target.value }))} placeholder="图标(1-2字)" maxLength={2} />
-                <input className="field" value={boardForm.category} onChange={(e) => setBoardForm((f) => ({ ...f, category: e.target.value }))} placeholder="分类" maxLength={12} />
+                <input className="field" value={boardForm.category} onChange={(e) => setBoardForm((f) => ({ ...f, category: e.target.value }))} placeholder="分类" maxLength={12} list="admin-board-cats" />
                 {!editBoardId ? <input className="field" value={boardForm.slug} onChange={(e) => setBoardForm((f) => ({ ...f, slug: e.target.value }))} placeholder="标识(可空)" /> : null}
               </div>
+              <div className="admin-appoint-row">
+                <input className="field" type="number" min={0} step={1} value={boardForm.sort} onChange={(e) => setBoardForm((f) => ({ ...f, sort: e.target.value }))} placeholder="排序值(小在前)" />
+                <label className="admin-sys-toggle">
+                  <input type="checkbox" checked={!!boardForm.system} onChange={(e) => setBoardForm((f) => ({ ...f, system: e.target.checked }))} />
+                  <span>系统推荐</span>
+                </label>
+              </div>
+              <datalist id="admin-board-cats">
+                {boardCats.map((c) => <option key={c} value={c} />)}
+              </datalist>
               <input className="field" value={boardForm.desc} onChange={(e) => setBoardForm((f) => ({ ...f, desc: e.target.value }))} placeholder="一句话介绍" maxLength={80} />
               <input className="field" value={boardForm.types || ""} onChange={(e) => setBoardForm((f) => ({ ...f, types: e.target.value }))} placeholder="主题分类，逗号分隔，如 讨论,求助,分享" maxLength={120} />
               <input className="field" value={boardForm.announcement || ""} onChange={(e) => setBoardForm((f) => ({ ...f, announcement: e.target.value }))} placeholder="版块公告（可空）" maxLength={500} />
               <div className="admin-appoint-row">
                 <button className="btn btn-fill" type="submit">{editBoardId ? "保存修改" : "创建版块"}</button>
-                {editBoardId ? <button className="btn" type="button" onClick={() => { setEditBoardId(null); setBoardForm({ name: "", slug: "", icon: "", color: "#FF6A00", desc: "", category: "生活综合", types: "讨论,求助,分享", announcement: "" }); }}>取消</button> : null}
+                {editBoardId ? <button className="btn" type="button" onClick={() => { setEditBoardId(null); setBoardForm({ name: "", slug: "", icon: "", color: "#FF6A00", desc: "", category: "生活综合", types: "讨论,求助,分享", announcement: "", sort: 0, system: false }); }}>取消</button> : null}
               </div>
             </form>
 
@@ -1015,11 +1040,19 @@ export default function Admin() {
             {boards.map((b) => (
               <div className="admin-board" key={b.id}>
                 <div className="admin-board-h">
-                  <b><i className="medal-dot" style={{ background: b.color }}>{b.icon || b.name.slice(0, 1)}</i>{b.name}</b>
+                  <b><i className="medal-dot" style={{ background: b.color }}>{b.icon || b.name.slice(0, 1)}</i>{b.name}{b.system ? <em className="admin-sys-tag">荐</em> : null}</b>
                   <span className="admin-acts">
+                    <button type="button" onClick={() => toggleBoardSystem(b)}>{b.system ? "取消推荐" : "推荐"}</button>
                     <button type="button" onClick={() => openEditBoard(b)}>编辑</button>
                     <button type="button" onClick={() => delBoard(b)}>删除</button>
                   </span>
+                </div>
+                <div className="admin-board-meta hint">
+                  <span>排序 {Number(b.sort) || 0}</span>
+                  <span>{b.category || "生活综合"}</span>
+                  <span>热度 {formatHeat(b.heat)}</span>
+                  <span>话题 {formatHeat(b.topics)}</span>
+                  <span>帖子 {b.postCount || 0}</span>
                 </div>
                 <div className="admin-mods">
                   {(b.staff || []).map((m) => (

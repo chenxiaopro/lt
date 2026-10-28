@@ -1711,6 +1711,7 @@ function mapBoard(b, meId) {
       "SELECT COUNT(*) AS c FROM posts WHERE board_id=? AND created_at>=?"
     ).get(b.id, new Date(new Date().setHours(0, 0, 0, 0)).toISOString()).c,
     category: b.category || "生活综合",
+    sort: b.sort_order || 0,
     heat: b.heat || 0,
     topics: b.topics || b.post_count || 0,
     moderators: names,

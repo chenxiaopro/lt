@@ -153,7 +153,7 @@ loadDotEnv();
 
 const SECRET = process.env.JWT_SECRET || "qinghu-sanlou-dev-secret";
 const PORT = Number(process.env.PORT || 3001);
-const RELEASE = "1.0.34";
+const RELEASE = "1.0.35";
 const IMAGE_MAX_MB = 6;
 const VIDEO_MAX_MB = Math.max(1, Math.min(200, Number(process.env.VIDEO_MAX_MB) || 80));
 const uploadDir = path.join(__dirname, "uploads");
@@ -2697,13 +2697,14 @@ app.post("/api/admin/boards", authAdmin, (req, res) => {
   const color = String(body.color || "#FF6A00").slice(0, 16);
   const desc = String(body.desc || "").trim().slice(0, 80);
   const category = String(body.category || "生活综合").trim().slice(0, 12);
-  const sort = Number(body.sort || 0);
+  const sort = Math.max(0, Math.floor(Number(body.sort) || 0));
+  const systemFlag = Number(body.system) ? 1 : 0;
   const types = forumx.normalizeTypes(body.types);
   const savedTypes = JSON.stringify(types.length ? types : forumx.defaultTypes());
   const announcement = String(body.announcement || "").trim().slice(0, 500);
   const info = db
-    .prepare("INSERT INTO boards (name, slug, icon, cover, desc, color, sort_order, category, thread_types, announcement) VALUES (?,?,?,?,?,?,?,?,?,?)")
-    .run(name, slug, icon, "", desc, color, sort, category, savedTypes, announcement);
+    .prepare("INSERT INTO boards (name, slug, icon, cover, desc, color, sort_order, category, thread_types, announcement, system_flag) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+    .run(name, slug, icon, "", desc, color, sort, category, savedTypes, announcement, systemFlag);
   logAdmin(req.user.id, "board_create", null, `新建版块 ${name}`);
   refreshBoardStats();
   res.json({ board: db.prepare("SELECT * FROM boards WHERE id=?").get(info.lastInsertRowid) });
@@ -2718,15 +2719,16 @@ app.put("/api/admin/boards/:id", authAdmin, (req, res) => {
   const color = String(body.color ?? board.color).slice(0, 16);
   const desc = String(body.desc ?? board.desc).trim().slice(0, 80);
   const category = String(body.category ?? board.category).trim().slice(0, 12);
-  const sort = Number(body.sort ?? board.sort_order);
+  const sort = Math.max(0, Math.floor(Number(body.sort ?? board.sort_order) || 0));
+  const systemFlag = body.system !== undefined ? (Number(body.system) ? 1 : 0) : Number(board.system_flag) ? 1 : 0;
   const rules = body.rules !== undefined ? String(body.rules).slice(0, 4000) : board.rules;
   const typesRaw = body.types !== undefined ? body.types : body.threadTypes;
   const savedTypes = typesRaw !== undefined
     ? JSON.stringify(forumx.normalizeTypes(typesRaw, board.thread_types))
     : (board.thread_types || "");
   const announcement = body.announcement !== undefined ? String(body.announcement || "").trim().slice(0, 500) : board.announcement;
-  db.prepare("UPDATE boards SET name=?, icon=?, color=?, desc=?, category=?, sort_order=?, rules=?, thread_types=?, announcement=? WHERE id=?")
-    .run(name, icon, color, desc, category, sort, rules, savedTypes, announcement, board.id);
+  db.prepare("UPDATE boards SET name=?, icon=?, color=?, desc=?, category=?, sort_order=?, rules=?, thread_types=?, announcement=?, system_flag=? WHERE id=?")
+    .run(name, icon, color, desc, category, sort, rules, savedTypes, announcement, systemFlag, board.id);
   logAdmin(req.user.id, "board_edit", board.id, `编辑版块 ${name}`);
   res.json({ board: db.prepare("SELECT * FROM boards WHERE id=?").get(board.id) });
 });

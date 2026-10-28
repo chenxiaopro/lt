@@ -2080,6 +2080,10 @@ html:has(.now-page) #root {
 .admin-pager { display: flex; gap: 10px; align-items: center; justify-content: center; margin: 14px 0; }
 .admin-board-form { border-left: 3px solid #ff2442; }
 .admin-board-h .medal-dot { width: 22px; height: 22px; font-size: 12px; display: inline-grid; place-items: center; margin-right: 6px; border-radius: 6px; color: #fff; font-style: normal; }
+.admin-sys-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: #374151; white-space: nowrap; }
+.admin-sys-toggle input { width: 16px; height: 16px; accent-color: #ff2442; }
+.admin-sys-tag { font-style: normal; font-size: 10px; color: #fff; background: #ff2442; border-radius: 4px; padding: 1px 4px; margin-left: 6px; vertical-align: 2px; }
+.admin-board-meta { display: flex; flex-wrap: wrap; gap: 10px; margin: 6px 0 8px; font-size: 12px; color: #6b7280; }
 .admin-row .warn { color: #ff2442; }
 .hint.warn { color: #ff2442; }
 

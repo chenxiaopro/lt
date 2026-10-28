@@ -27,13 +27,13 @@ fi
 cd "${ROOT}/backend"
 
 # 1) 版本文件校验：确认 zip 真的覆盖到了 server.js
-if grep -q 'const RELEASE = "1.0.34"' server.js 2>/dev/null; then
-  echo "文件检查通过：server.js 已是 1.0.34"
+if grep -q 'const RELEASE = "1.0.35"' server.js 2>/dev/null; then
+  echo "文件检查通过：server.js 已是 1.0.35"
 else
   echo
-  echo "【失败】server.js 不是 1.0.34，说明 zip 没有覆盖到："
+  echo "【失败】server.js 不是 1.0.35，说明 zip 没有覆盖到："
   echo "  ${ROOT}/backend/server.js"
-  echo "请把 qinghu-sanlou-1.0.34.zip 解压覆盖到 ${ROOT}"
+  echo "请把 qinghu-sanlou-1.0.35.zip 解压覆盖到 ${ROOT}"
   echo "（该目录下要能直接看到 backend 和 frontend 两个文件夹）"
   exit 1
 fi
@@ -89,14 +89,14 @@ OK=""
 H=""
 for i in 1 2 3 4 5 6; do
   H="$(curl -s --max-time 4 http://127.0.0.1:${PORT}/api/health || true)"
-  if echo "${H}" | grep -q '"release":"1.0.34"'; then OK=1; echo "${H}"; break; fi
+  if echo "${H}" | grep -q '"release":"1.0.35"'; then OK=1; echo "${H}"; break; fi
   sleep 1
 done
 
 echo
 if [ -n "${OK}" ]; then
   echo "========================================"
-  echo " 后端 1.0.34 已生效"
+  echo " 后端 1.0.35 已生效"
   echo "========================================"
 else
   echo "========================================"

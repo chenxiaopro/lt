@@ -46,7 +46,8 @@ export default function Community() {
 
   const notice = boards.find((b) => b.slug === "notice");
   const feedback = boards.find((b) => b.slug === "feedback");
-  const sysBoards = [notice, feedback].filter(Boolean);
+  const flagged = boards.filter((b) => b.system);
+  const sysBoards = flagged.length ? flagged : [notice, feedback].filter(Boolean);
   const skip = new Set(sysBoards.map((b) => b.id));
   const mineGrid = boards.filter((b) => b.followed && !skip.has(b.id));
   const odd = (mineGrid.length + 1) % 2 === 1;
